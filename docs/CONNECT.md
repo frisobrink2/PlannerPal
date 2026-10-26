@@ -63,7 +63,7 @@ Aanmelden vraagt openid, email en profile. Verbinden voegt offline_access, User.
 
 ## 4. Database-upgrade en deployment
 
-**Vercel Production-builds voeren automatisch `npm run prebuild` uit.** Als DATABASE_URL aanwezig is, worden de SQL-migraties vóór `next build` toegepast. `schema_migrations` bewaart bestandsnamen en checksums; een transactionele advisory lock voorkomt gelijktijdige upgrades. Bij een migratiefout stopt de build met een melding zonder verbindingsgegevens.
+**Vercel Production-builds voeren automatisch `npm run prebuild` uit.** `vercel.json` legt hiervoor expliciet `npm run build` als buildcommando vast. Als DATABASE_URL aanwezig is, worden de SQL-migraties vóór `next build` toegepast. `schema_migrations` bewaart bestandsnamen en checksums; een transactionele advisory lock voorkomt gelijktijdige upgrades. Bij een migratiefout stopt de build met een melding zonder verbindingsgegevens.
 
 - `db/001-assistant.sql`: oorspronkelijke tabellen voor gebruikers, sessies, mail, taken, concepten, notities en log.
 - `db/002-multiple-providers.sql`: provider-identiteiten en verbindingen, legacy Google-migratie en extra kalender-/bronvelden.
