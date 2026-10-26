@@ -342,6 +342,9 @@ export default function Home() {
           </button>
         </nav>
         <div className="top-actions">
+          <a className="live-link" href="/assistant">
+            Mijn assistent <ArrowRight size={13} />
+          </a>
           <span className="demo-badge">DEMO</span>
           <button
             className="icon-button"

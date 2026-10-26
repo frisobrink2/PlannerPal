@@ -1575,3 +1575,577 @@ select {
     font-size: 9px;
   }
 }
+/* The connected assistant uses account storage; demo data remains on the demo route. */
+.live-link {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.connect-landing {
+  max-width: 810px;
+  margin: 55px auto;
+  padding-bottom: 50px;
+}
+.connect-landing h1 {
+  font-size: 48px;
+  line-height: 1.15;
+  margin: 20px 0 25px;
+}
+.connect-landing > p {
+  font-size: 16px;
+  line-height: 1.8;
+  max-width: 580px;
+  color: var(--muted);
+}
+.connect-features {
+  display: grid;
+  gap: 20px;
+  padding: 30px 0;
+  color: #4f6955;
+}
+.connect-features span {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.setup-callout {
+  border: 1px solid #d6dfcd;
+  background: #eef3e8;
+  padding: 24px;
+  border-radius: 6px;
+  line-height: 1.8;
+  color: #5a7050;
+  margin: 20px 0;
+}
+.setup-callout strong {
+  font-size: 15px;
+}
+.setup-callout p {
+  font-size: 13px;
+  margin: 8px 0 20px;
+  max-width: 590px;
+}
+.setup-callout.compact {
+  font-size: 12px;
+  padding: 12px 16px;
+}
+.install-tip {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  margin-top: 35px;
+  padding-top: 25px;
+  color: #5f7557;
+}
+.install-tip strong {
+  font-size: 13px;
+}
+.install-tip p {
+  font-size: 12px;
+  line-height: 1.8;
+  margin-top: 7px;
+}
+.connect-landing .privacy-link {
+  font-size: 11px;
+  margin-top: 25px;
+}
+.privacy-link a {
+  text-decoration: underline;
+}
+.connected-app .top {
+  gap: 35px;
+}
+.connected-app .top nav {
+  gap: 20px;
+  min-width: 0;
+}
+.connected-app .top nav button {
+  white-space: nowrap;
+  font-size: 12px;
+}
+.connected-app .top-actions {
+  gap: 10px;
+}
+.connected-app .heading {
+  margin-bottom: 26px;
+}
+.connected-date {
+  font-size: 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.connected-date input {
+  font-size: 12px;
+}
+.sync-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.sync-controls .secondary {
+  font-size: 10px;
+  min-height: 32px;
+  padding: 8px 11px;
+}
+.connected-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 20px;
+}
+.connected-column {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 400px;
+  max-height: 800px;
+}
+.connected-column .mail-list,
+.connected-column .task-list,
+.real-agenda {
+  flex: 1;
+  overflow: auto;
+}
+.connected-column .task-list {
+  min-height: 0;
+}
+.connected-column .mail-from span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.real-event {
+  border-bottom: 1px solid var(--line);
+  padding: 20px;
+}
+.real-event time {
+  font-size: 12px;
+  color: var(--accent);
+}
+.real-event h3 {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+.action-progress {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 12px 0;
+}
+.analysis-summary {
+  color: #657b59;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.preserved,
+.draft-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.draft-preview {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--muted);
+  margin-bottom: 23px;
+}
+.send-preview {
+  max-height: 330px;
+  overflow: auto;
+  background: #f5f7f0;
+  border: 1px solid var(--line);
+  padding: 16px;
+}
+.recipient-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  padding: 15px;
+  background: #edf2e8;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin-bottom: 24px;
+  overflow-wrap: anywhere;
+}
+.recipient-box span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.reply-editor {
+  min-height: 250px;
+  font-size: 14px;
+  line-height: 1.8;
+  resize: vertical;
+}
+.connected-app .alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.voice-panel {
+  background: white;
+  border: 1px solid var(--line);
+  padding: 28px;
+  border-radius: 6px;
+  margin-bottom: 25px;
+  max-width: 1000px;
+}
+.voice-panel h2 {
+  font-size: 23px;
+  font-weight: 500;
+  margin: 12px 0;
+}
+.voice-panel > div > p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.9;
+  max-width: 700px;
+}
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 25px 0;
+}
+.voice-panel textarea {
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.9;
+  font-size: 14px;
+}
+.voice-controls .upload-button {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  flex-direction: row;
+}
+.upload-button input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+.upload-button:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.recording-button {
+  background: #9b553d;
+  color: white;
+  border-radius: 5px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.note-list {
+  display: grid;
+  gap: 20px;
+  max-width: 1000px;
+}
+.note-list h3 {
+  font-size: 17px;
+  line-height: 1.8;
+  margin: 12px 0;
+}
+.note-list summary {
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  margin: 17px 0;
+}
+.note-suggestion {
+  border-top: 1px solid var(--line);
+  padding: 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: space-between;
+}
+.note-suggestion strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.note-suggestion p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin-top: 6px;
+}
+.note-suggestion button {
+  flex-shrink: 0;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.settings-grid h2 {
+  font-size: 19px;
+  margin: 15px 0;
+}
+.settings-grid p {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--muted);
+  margin: 15px 0;
+}
+.settings-grid .danger {
+  display: block;
+  margin-top: 18px;
+}
+.activity-log {
+  grid-column: 1/-1;
+}
+.activity-log > div {
+  padding: 13px 0;
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.activity-log time {
+  min-width: 140px;
+  font-size: 10px;
+}
+.privacy-page {
+  max-width: 800px;
+  margin: 40px auto;
+  padding-bottom: 70px;
+  line-height: 1.9;
+}
+.privacy-page h1 {
+  margin: 25px 0;
+}
+.privacy-page h2 {
+  font-size: 18px;
+  margin: 30px 0 10px;
+}
+.privacy-page p {
+  font-size: 14px;
+  color: var(--muted);
+}
+.privacy-page p a {
+  text-decoration: underline;
+}
+@media (max-width: 1100px) {
+  .connected-app .top {
+    gap: 25px;
+  }
+  .connected-app .top nav {
+    gap: 16px;
+  }
+  .connected-app .top nav button {
+    font-size: 11px;
+  }
+  .connected-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .connected-grid .connected-column:last-child {
+    grid-column: 1/-1;
+    max-height: 550px;
+  }
+  .connected-app .top-actions .source {
+    font-size: 10px;
+  }
+  .connected-column {
+    max-height: 700px;
+  }
+}
+@media (max-width: 700px) {
+  .connected-app .top {
+    gap: 0;
+    padding-top: 14px;
+  }
+  .connected-app .top nav {
+    gap: 22px;
+    overflow-x: auto;
+    order: 2;
+    scrollbar-width: thin;
+  }
+  .connected-app .top nav button {
+    font-size: 11px;
+  }
+  .connected-app .top-actions {
+    order: 1;
+  }
+  .connected-grid {
+    grid-template-columns: 1fr;
+  }
+  .connected-grid .connected-column:last-child {
+    grid-column: auto;
+  }
+  .connected-column {
+    min-height: 250px;
+    max-height: 600px;
+  }
+  .connected-app .day-toolbar {
+    align-items: stretch;
+  }
+  .sync-controls {
+    justify-content: space-between;
+    font-size: 9px;
+    gap: 10px;
+  }
+  .connected-date {
+    font-size: 11px;
+  }
+  .connected-date input {
+    font-size: 14px;
+  }
+  .connect-landing {
+    margin: 30px auto;
+    padding-bottom: 30px;
+  }
+  .connect-landing h1 {
+    font-size: 37px;
+    margin: 20px 0;
+  }
+  .connect-landing > p {
+    font-size: 14px;
+  }
+  .connect-features {
+    font-size: 12px;
+    gap: 18px;
+  }
+  .setup-callout {
+    padding: 20px;
+  }
+  .setup-callout strong {
+    font-size: 14px;
+  }
+  .setup-callout p {
+    font-size: 12px;
+  }
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .activity-log {
+    grid-column: auto;
+  }
+  .activity-log > div {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .voice-panel {
+    padding: 22px;
+  }
+  .voice-panel h2 {
+    font-size: 21px;
+  }
+  .voice-panel textarea,
+  .reply-editor {
+    font-size: 16px;
+  }
+  .voice-controls {
+    gap: 9px;
+  }
+  .voice-controls .primary,
+  .voice-controls .secondary {
+    font-size: 11px;
+  }
+  .note-suggestion {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .connected-app .dialog input,
+  .connected-app .dialog select {
+    font-size: 16px;
+  }
+  .connected-app .top nav button {
+    flex-shrink: 0;
+  }
+  .connected-app .heading h1 {
+    font-size: 28px;
+  }
+  .privacy-page {
+    margin: 25px auto;
+  }
+  .live-link {
+    font-size: 10px;
+  }
+  .top-actions:has(.live-link) {
+    gap: 10px;
+  }
+  .top-actions:has(.live-link) .user-avatar {
+    display: none;
+  }
+}
+@supports (padding: env(safe-area-inset-bottom)) {
+  .connected-app main {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .connected-app .drawer {
+    padding-bottom: calc(35px + env(safe-area-inset-bottom));
+  }
+}
+.assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 22px;
+  flex-wrap: wrap;
+}
+.assistant-actions button {
+  font-size: 11px;
+}
+.brief-panel {
+  border: 1px solid #d6dfcd;
+  background: #f0f4ea;
+  padding: 24px;
+  border-radius: 5px;
+  margin-bottom: 24px;
+}
+.brief-panel > p {
+  font-size: 14px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  color: #647957;
+  margin: 13px 0;
+}
+.brief-panel > small {
+  font-size: 10px;
+  line-height: 1.8;
+  display: block;
+  color: #829375;
+}
+.followup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 15px 0;
+  border-top: 1px solid #dae3d0;
+  font-size: 12px;
+}
+.followup-row small {
+  display: block;
+  font-size: 10px;
+  color: #839178;
+  margin-top: 7px;
+}
+.followup-row b {
+  font-size: 10px;
+  color: #77916c;
+  white-space: nowrap;
+}
+.connected-app .task-actions {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}

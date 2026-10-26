@@ -1,6 +1,6 @@
 # PlannerPal
 
-Een Nederlandstalige werkplek voor zelfstandige professionals. Inbox, taken en dagplanning staan op desktop naast elkaar; op mobiel wissel je tussen die onderdelen. Alle mails en personen zijn fictief. Er worden geen mails verstuurd en er vinden geen AI-aanroepen plaats.
+Een Nederlandstalige werkplek voor zelfstandige professionals. De demo op **/** gebruikt fictieve mails en lokale opslag. De echte assistent op **/assistant** koppelt Gmail, Google Agenda, accountopslag en AI nadat je de serverinstellingen hebt aangesloten. Zie [de aansluitinstructies](docs/CONNECT.md).
 
 ## Starten
 
@@ -19,7 +19,7 @@ npm run build
 npm run start
 ```
 
-Er zijn geen omgevingsvariabelen, accounts, API-sleutels of externe diensten nodig. De cache in `/tmp` voorkomt een probleem met de standaardcache in deze cloudomgeving. Je kunt deze optie op je eigen machine weglaten. Op Vercel kun je de repository als Next.js-project importeren met de standaardinstellingen.
+Voor de demo zijn geen omgevingsvariabelen, accounts, API-sleutels of externe diensten nodig. De cache in `/tmp` voorkomt een probleem met de standaardcache in deze cloudomgeving. Je kunt deze optie op je eigen machine weglaten. Op Vercel kun je de repository als Next.js-project importeren met de standaardinstellingen.
 
 ## Probeer de gebruikersroute
 
@@ -68,7 +68,7 @@ De Playwright-browsertest gebruikt `/usr/bin/chromium` indien aanwezig. Anders i
 
 De browserroute controleert voorstellen, handmatige taken, bewerken, verwijderen, undo, meerdere dagen, deadlinebehoud, overlap bij aanmaken en wijzigen, afspraken/pauzes, capaciteitswaarschuwingen, concepten, persistentie, afronden, migratie, ongeldige opslag, reset en mobiel gebruik. Build en TypeScript worden afzonderlijk gecontroleerd.
 
-## Beperkingen
+## Beperkingen van de demo
 
 - Voorbeelddata en een vaste begindag; de datum wordt niet automatisch naar vandaag gezet.
 - Geen accounts, database, echte mail- of agendakoppeling, verzendfunctie of AI-aanroepen.
@@ -76,3 +76,26 @@ De browserroute controleert voorstellen, handmatige taken, bewerken, verwijderen
 - Werkhoeveelheid is de som van geschatte minuten; energie, reistijd en inhoudelijke haalbaarheid worden niet beoordeeld. Vrije tijd kan versnipperd zijn: de tijdkeuze controleert of een taak aaneengesloten past.
 - Opslag is per browser en origin; geen synchronisatie, back-up, encryptie of conflictregeling tussen tabbladen. Bij een andere deploy-URL zie je een aparte werkplek. Geen vertrouwelijke gegevens invoeren.
 - Alleen gegevens worden bewaard: de actieve datum, filters, schermkeuze en undo-geschiedenis beginnen na herladen opnieuw.
+
+## Echte assistent voor Gmail en iPhone
+
+De echte assistent staat op **`/assistant`**. De bestaande demo op `/` blijft zelfstandig werken zonder inloggen, database of AI-sleutel. In de demo brengt **Mijn assistent** je naar de nieuwe route.
+
+Aansluiten op `https://planner-pal.vercel.app` staat stap voor stap in **[docs/CONNECT.md](docs/CONNECT.md)**. Er zijn Google OAuth-instellingen, PostgreSQL en een OpenAI API-sleutel nodig. Gebruik `.env.example` als namenlijst; vul waarden alleen in beveiligde serverinstellingen in. Zonder instellingen toont de app een aansluitpagina en doet hij geen echte externe acties.
+
+Gebouwd: Google-login met PKCE en statecontrole; versleutelde Google-tokens en gehashte sessies; Gmail ophalen; primaire agenda ophalen; AI-samenvattingen, taakvoorstellen en antwoordconcepten; handmatige taken; revisiegebonden bevestiging voor echte mailverzending; overlapcontrole en deterministische Google-event-ID's; actielog en accountverwijdering; eigen spraaknotities/transcriptie; dagoverzicht, afspraakvoorbereiding en mogelijke wachtende gesprekken; iPhone-webappmanifest en iconen.
+
+Privégegevens van de gekoppelde assistent worden niet in localStorage of een serviceworker-cache bewaard. De browser ontvangt geen toegangstokens, OAuth-secret, databasewachtwoord of AI-sleutel. AI heeft geen tools of verzendrechten: serverroutes voeren alleen afzonderlijk bevestigde acties uit. Echte mail kan niet worden teruggehaald via de demo-undo.
+
+Aanvullende checks:
+
+```bash
+npm run test:server   # PGlite: werkelijk PostgreSQL-schema, broncontrole, revisies, atomaire verzending, agenda en fouten
+npm run test:connected # Echte aansluitpagina, PWA en afwijzen van niet-ingelogde acties; eerst server starten
+npm run test:ui       # Gekoppelde interface met gemockte netwerkresponses; geen echte mails of AI-aanroepen
+npm run db:migrate   # Alleen met je eigen ingestelde DATABASE_URL; idem SQL-editor van databaseprovider
+```
+
+Testuitkomsten met fixtures bewijzen niet dat jouw Google OAuth-toestemming, productie-database of OpenAI-sleutel werken. De daadwerkelijke eigenaarstest in CONNECT.md blijft nodig na configuratie. Er is nog geen onafhankelijke beveiligingsaudit of validatie op een fysieke iPhone uitgevoerd.
+
+Huidige grenzen: één toegestaan Gmail-account; primaire Google-agenda; twintig inboxmails; maximaal vijf voorstellen per analyse; takenoverzicht maximaal 500; maximaal vijftig concepten en tien notities in het overzicht. Wachtende gesprekken worden afgeleid uit maximaal tien verzonden mails van drie tot veertien dagen oud. AI-overzichten gebruiken maximaal dertig openstaande taken en tien recente inboxmails. Opnames zijn expliciet gestart, maximaal negentig seconden/4 MB. Geen automatische call-opname, pushmeldingen, cronjobs of gegarandeerde iOS-achtergrondsynchronisatie. Zie CONNECT.md voor herstel bij een onzekere externe actie.

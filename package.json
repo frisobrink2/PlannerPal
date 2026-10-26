@@ -7,19 +7,33 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "node tests/smoke.cjs"
+    "test:e2e": "node tests/smoke.cjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "test:server": "tsx --test tests/server.test.ts",
+    "test:ui": "tsx --test tests/assistant-ui.test.tsx",
+    "test:connected": "node tests/connected-smoke.cjs"
   },
   "dependencies": {
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
+    "pg": "^8.23.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
+    "@testing-library/react": "^16.3.3",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "jsdom": "^30.1.3",
     "playwright": "^1.64.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.0"
   },
   "engines": {
