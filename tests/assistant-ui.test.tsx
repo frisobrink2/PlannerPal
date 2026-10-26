@@ -61,7 +61,7 @@ beforeEach(() => {
       );
     if (path === "/api/sync") return result(state);
     if (path.startsWith("/api/calendar?")) return result({ events: [] });
-    if (path === "/api/ai") {
+    if (path === "/api/ai" || path === "/api/suggestions") {
       if (body.kind === "mail") {
         const analysis = {
           summary: "Sophie vraagt een offerte.",
@@ -161,7 +161,18 @@ after(() => {
 const render = () =>
   testing.render(
     <Assistant
-      account={{ name: "Test Owner", email: "owner@example.com" }}
+      account={{
+        name: "Test Owner",
+        email: "owner@example.com",
+        provider: "google",
+        connectedEmail: "owner@example.com",
+        capabilities: {
+          readMail: true,
+          readCalendar: true,
+          sendMail: true,
+          writeCalendar: true,
+        },
+      }}
       configured
       aiReady
       authFailed={false}
@@ -343,4 +354,151 @@ test("microphone starts only after a click, resists a double click and stops whe
       value: "visible",
     });
   }
+});
+
+test("new visitors can choose Google or Microsoft without seeing technical setup fields", () => {
+  const { screen } = testing;
+  testing.render(
+    <Assistant
+      account={null}
+      configured
+      providers={{ google: true, microsoft: true }}
+      aiReady={false}
+      authFailed={false}
+      revokeWarning={false}
+    />,
+  );
+  assert.equal(
+    screen
+      .getByRole("link", { name: /Doorgaan met Google/ })
+      .getAttribute("href"),
+    "/api/auth/google?intent=login",
+  );
+  assert.equal(
+    screen
+      .getByRole("link", { name: /Doorgaan met Microsoft/ })
+      .getAttribute("href"),
+    "/api/auth/microsoft?intent=login",
+  );
+  assert(!document.body.textContent?.includes("DATABASE_URL"));
+  assert(
+    screen.getByText(
+      "Inloggen geeft ons nog geen toegang tot je mail of agenda.",
+    ),
+  );
+});
+test("signed-in users without a connection can use tasks without requesting mailbox data", async () => {
+  const { screen, fireEvent, waitFor } = testing;
+  state.mails = [];
+  testing.render(
+    <Assistant
+      account={{ name: "New user", email: "new@example.com", provider: null }}
+      configured
+      providers={{ google: true, microsoft: true }}
+      aiReady={false}
+      authFailed={false}
+      revokeWarning={false}
+    />,
+  );
+  await screen.findByText("Verbind je mail en agenda");
+  assert.equal(
+    screen.getByRole("link", { name: /Google verbinden/ }).getAttribute("href"),
+    "/api/auth/google?intent=connect",
+  );
+  assert.equal(
+    calls.filter((call) => call.path === "/api/sync" && call.method === "POST")
+      .length,
+    0,
+  );
+  assert.equal(
+    calls.filter((call) => call.path.startsWith("/api/calendar")).length,
+    0,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Nieuwe taak" }));
+  fireEvent.change(screen.getByLabelText("Titel"), {
+    target: { value: "Mijn eigen taak" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Taak bewaren" }));
+  await waitFor(() => assert.equal(state.tasks.length, 1));
+});
+test("Microsoft read-only users get separate send and calendar consent buttons", async () => {
+  const { screen, fireEvent } = testing;
+  testing.render(
+    <Assistant
+      account={{
+        name: "Outlook user",
+        email: "login@example.com",
+        provider: "microsoft",
+        connectedEmail: "outlook@example.com",
+        capabilities: {
+          readMail: true,
+          readCalendar: true,
+          sendMail: false,
+          writeCalendar: false,
+        },
+      }}
+      configured
+      providers={{ google: true, microsoft: true }}
+      aiReady={false}
+      authFailed={false}
+      revokeWarning={false}
+    />,
+  );
+  await screen.findByText("Offerte voor Sophie");
+  fireEvent.click(screen.getByRole("button", { name: "Instellingen" }));
+  assert.equal(
+    screen
+      .getByRole("link", { name: "Verzenden activeren" })
+      .getAttribute("href"),
+    "/api/auth/microsoft?intent=send",
+  );
+  assert.equal(
+    screen
+      .getByRole("link", { name: "Plannen activeren" })
+      .getAttribute("href"),
+    "/api/auth/microsoft?intent=calendar",
+  );
+  assert(screen.getByText(/outlook@example.com/));
+});
+test("free rule proposals and typed notes work without displaying microphone or calling paid AI", async () => {
+  const { screen, fireEvent } = testing;
+  testing.render(
+    <Assistant
+      account={{
+        name: "Free user",
+        email: "free@example.com",
+        provider: "google",
+        capabilities: {
+          readMail: true,
+          readCalendar: true,
+          sendMail: false,
+          writeCalendar: false,
+        },
+      }}
+      configured
+      aiReady={false}
+      authFailed={false}
+      revokeWarning={false}
+    />,
+  );
+  await screen.findByText("Offerte voor Sophie");
+  fireEvent.click(screen.getByText("Offerte voor Sophie"));
+  fireEvent.click(screen.getByRole("button", { name: "Regelvoorstel maken" }));
+  await screen.findByText("Offerte maken");
+  assert.equal(calls.filter((call) => call.path === "/api/ai").length, 0);
+  assert(calls.some((call) => call.path === "/api/suggestions"));
+  fireEvent.click(screen.getByRole("button", { name: "Sluiten" }));
+  fireEvent.click(screen.getByRole("button", { name: "Gespreksnotities" }));
+  assert.equal(screen.queryByRole("button", { name: "Notitie opnemen" }), null);
+  fireEvent.change(screen.getByLabelText("Jouw gespreksnotitie"), {
+    target: { value: "Bel Sophie terug." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Acties voorstellen" }));
+  await screen.findByText("Notitie opvolgen");
+  assert.equal(
+    calls.filter(
+      (call) => call.path === "/api/ai" || call.path === "/api/voice",
+    ).length,
+    0,
+  );
 });

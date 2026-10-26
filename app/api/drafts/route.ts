@@ -1,4 +1,4 @@
-import { requireUser } from "../../../server/auth";
+import { requireUser, requireCapability } from "../../../server/auth";
 import { database } from "../../../server/db";
 import {
   draftEdit,
@@ -44,6 +44,7 @@ export async function POST(request: Request) {
         .parse(input);
       return response(await saveDraft(database(), user.id, data.mailId, ""));
     }
+    requireCapability(user, "sendMail");
     return response(await sendDraft(user, sendInput.parse(input)));
   } catch (error) {
     return routeError(error);
@@ -71,6 +72,20 @@ export async function PUT(request: Request) {
         "Dit concept heeft geen onzekere verzendstatus.",
         409,
       );
+    if (user.provider === "microsoft") {
+      const { microsoftSentReceipt } =
+        await import("../../../server/microsoft");
+      const receipt = await microsoftSentReceipt(
+        user,
+        `${draft.id}.${draft.revision}@plannerpal.vercel.app`,
+      );
+      if (!receipt) return response({ resolved: false });
+      await database().query(
+        "UPDATE drafts SET status='sent',sent_id=$1 WHERE user_id=$2 AND id=$3",
+        [receipt, user.id, id],
+      );
+      return response({ resolved: true });
+    }
     const query = new URLSearchParams({
       q: `in:sent rfc822msgid:${draft.id}.${draft.revision}@plannerpal.vercel.app`,
       maxResults: "2",

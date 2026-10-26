@@ -5,7 +5,12 @@ export type ConnectedMail = {
   recipient: string;
   body: string;
   received_at: string;
-  analysis: { summary: string; tasks: Suggestion[]; reply: string } | null;
+  analysis: {
+    summary: string;
+    tasks: Suggestion[];
+    reply: string;
+    source?: "rules" | "ai";
+  } | null;
 };
 export type Suggestion = {
   title: string;
@@ -43,7 +48,12 @@ export type ConnectedDraft = {
 export type ConnectedNote = {
   id: string;
   transcript: string;
-  analysis: { summary: string; tasks: Suggestion[]; reply: string };
+  analysis: {
+    summary: string;
+    tasks: Suggestion[];
+    reply: string;
+    source?: "rules" | "ai";
+  };
   created_at: string;
 };
 export type ConnectedEvent = {

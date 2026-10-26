@@ -49,7 +49,7 @@ export async function PATCH(request: Request) {
     );
     if (!result.rows[0])
       throw new PublicError(
-        "De taak is gewijzigd of heeft een agendablok. Verplaats geplande taken via Inplannen; titel en duur staan vast zolang ze in Google Agenda staan.",
+        "De taak is gewijzigd of heeft een agendablok. Verplaats geplande taken via Inplannen; titel en duur staan vast zolang ze in je agenda staan.",
         409,
       );
     await audit(database(), user.id, "task.update", "saved", input.id);
@@ -75,7 +75,7 @@ export async function DELETE(request: Request) {
     );
     if (!result.rows[0])
       throw new PublicError(
-        "De taak is gewijzigd of heeft nog een agendablok. Verwijder dat blok eerst in Google Agenda en controleer de agendastatus.",
+        "De taak is gewijzigd of heeft nog een agendablok. Verwijder dat blok eerst in je agenda en controleer de agendastatus.",
         409,
       );
     await audit(database(), user.id, "task.delete", "deleted", input.id);

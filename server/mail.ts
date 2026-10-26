@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { google } from "./google";
+import { microsoftInbox, microsoftSend } from "./microsoft";
 import { database, audit, Queryable } from "./db";
 import type { Account } from "./auth";
 import { PublicError, ProviderError } from "./http";
@@ -70,6 +71,15 @@ export function normalizeMail(message: GmailMessage) {
   };
 }
 export async function syncMail(user: Account) {
+  if (user.provider === "microsoft") {
+    const group = await microsoftInbox(user);
+    for (const message of group) await persistMail(user, message);
+    await markInbox(
+      user,
+      group.map((m) => m.id),
+    );
+    return group.length;
+  }
   const list = await google<{ messages?: { id: string }[] }>(
     user,
     "/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=20",
@@ -89,21 +99,7 @@ export async function syncMail(user: Account) {
     );
     for (const message of group) {
       try {
-        const m = normalizeMail(message);
-        await database().query(
-          "INSERT INTO mail_cache(id,user_id,thread_id,message_id,subject,sender,recipient,body,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(user_id,id) DO UPDATE SET subject=$5,sender=$6,recipient=$7,body=$8,received_at=$9,synced_at=now()",
-          [
-            m.id,
-            user.id,
-            m.thread_id,
-            m.message_id,
-            m.subject,
-            m.sender,
-            m.recipient,
-            m.body,
-            m.received_at,
-          ],
-        );
+        await persistMail(user, message);
         imported++;
       } catch (error) {
         if (error instanceof z.ZodError) continue;
@@ -111,17 +107,60 @@ export async function syncMail(user: Account) {
       }
     }
   }
-  const currentIds = ids.map((m) => m.id);
+  await markInbox(
+    user,
+    ids.map((m) => m.id),
+  );
+  return imported;
+}
+async function persistMail(
+  user: Account,
+  message: GmailMessage & { web_url?: string },
+) {
+  const m = normalizeMail(message);
+  const webUrl =
+    message.web_url && safeMailLink(message.web_url) ? message.web_url : null;
+  await database().query(
+    "INSERT INTO mail_cache(id,user_id,thread_id,message_id,subject,sender,recipient,body,received_at,web_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(user_id,id) DO UPDATE SET subject=$5,sender=$6,recipient=$7,body=$8,received_at=$9,web_url=$10,synced_at=now()",
+    [
+      m.id,
+      user.id,
+      m.thread_id,
+      m.message_id,
+      m.subject,
+      m.sender,
+      m.recipient,
+      m.body,
+      m.received_at,
+      webUrl,
+    ],
+  );
+}
+export function safeMailLink(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      [
+        "outlook.office.com",
+        "outlook.office365.com",
+        "outlook.live.com",
+      ].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+async function markInbox(user: Account, ids: string[]) {
   await database().query(
     "UPDATE mail_cache SET in_inbox=false WHERE user_id=$1 AND NOT (id=ANY($2::text[]))",
-    [user.id, currentIds],
+    [user.id, ids],
   );
-  if (currentIds.length)
+  if (ids.length)
     await database().query(
       "UPDATE mail_cache SET in_inbox=true WHERE user_id=$1 AND id=ANY($2::text[])",
-      [user.id, currentIds],
+      [user.id, ids],
     );
-  return imported;
 }
 export async function saveDraft(
   db: Queryable,
@@ -199,7 +238,9 @@ export async function sendDraft(
   input: z.infer<typeof sendInput>,
   db: Queryable = database(),
   send = (path: string, init: RequestInit) =>
-    google<{ id: string }>(user, path, init),
+    user.provider === "microsoft"
+      ? microsoftSend(user, JSON.parse(init.body as string).raw)
+      : google<{ id: string }>(user, path, init),
 ) {
   // Atomic claim: concurrent taps and stale revisions can never send the same draft twice.
   const claimed = await db.query(
@@ -223,7 +264,7 @@ export async function sendDraft(
     const raw = replyMime(
       draft as { recipient: string; subject: string; body: string },
       mail as { message_id: string },
-      user.email,
+      user.connection_email || user.email,
       `${draft.id}.${draft.revision}`,
     );
     const result = await send("/gmail/v1/users/me/messages/send", {
@@ -258,7 +299,7 @@ export async function sendDraft(
     );
     if (!rejected)
       throw new PublicError(
-        "Gmail heeft geen bevestiging teruggestuurd. Controleer eerst Verzonden in Gmail. Dit concept wordt niet automatisch opnieuw verstuurd.",
+        "Je maildienst heeft geen bevestiging teruggestuurd. Controleer eerst je map Verzonden. Dit concept wordt niet automatisch opnieuw verstuurd.",
         409,
       );
     throw error;

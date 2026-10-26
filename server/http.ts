@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { appUrl } from "./config";
-export class PublicError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-  ) {
-    super(message);
-  }
-}
+import { PublicError } from "./http-error";
+export { PublicError } from "./http-error";
 export class ProviderError extends Error {
   constructor(
     public provider: string,
@@ -70,7 +64,7 @@ export function routeError(error: unknown) {
       {
         error:
           error.status === 401 || error.status === 403
-            ? "De gekoppelde dienst weigert toegang. Controleer de Google-toestemming en verbind zo nodig opnieuw."
+            ? "De gekoppelde dienst weigert toegang. Controleer de toestemming en verbind je account zo nodig opnieuw."
             : "De gekoppelde dienst is tijdelijk niet beschikbaar. Probeer het later opnieuw.",
       },
       502,

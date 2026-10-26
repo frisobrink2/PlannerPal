@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const user = await requireUser();
+    aiKey();
     if (Number(request.headers.get("content-length") || 0) > 4200000)
       throw new PublicError("De opname mag maximaal 4 MB groot zijn.", 413);
     const bytes = await limitedBody(request, 4200000);

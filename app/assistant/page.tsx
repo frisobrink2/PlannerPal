@@ -1,6 +1,7 @@
 import { configuration } from "../../server/config";
 import { database } from "../../server/db";
 import { currentUser } from "../../server/auth";
+import { capabilities } from "../../server/provider-config";
 import Assistant from "./workspace";
 export const dynamic = "force-dynamic";
 export default async function AssistantPage({
@@ -13,9 +14,17 @@ export default async function AssistantPage({
   let storageReady = true;
   if (config.ready)
     try {
-      await database().query("SELECT id FROM users LIMIT 1");
+      await database().query("SELECT provider FROM auth_identities LIMIT 1");
       const account = await currentUser();
-      if (account) user = { name: account.name, email: account.email };
+      if (account)
+        user = {
+          name: account.name,
+          email: account.email,
+          loginProvider: account.login_provider || "google",
+          provider: account.provider || null,
+          connectedEmail: account.connection_email || null,
+          capabilities: capabilities(account.provider, account.scopes),
+        };
     } catch {
       storageReady = false;
     }
@@ -24,8 +33,9 @@ export default async function AssistantPage({
     <Assistant
       account={user}
       configured={config.ready && storageReady}
+      providers={config.providers}
       aiReady={config.aiReady}
-      authFailed={params.auth === "failed"}
+      authFailed={Boolean(params.auth && params.auth !== "setup")}
       revokeWarning={params.revoke === "manual"}
     />
   );

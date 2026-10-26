@@ -1,4 +1,4 @@
-import { requireUser } from "../../../server/auth";
+import { requireUser, requireCapability } from "../../../server/auth";
 import {
   dateString,
   calendarEvents,
@@ -28,6 +28,7 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const user = await requireUser();
+    requireCapability(user, "writeCalendar");
     return response(
       await scheduleTask(user, scheduleInput.parse(await jsonBody(request))),
     );
@@ -52,38 +53,25 @@ export async function PATCH(request: Request) {
         taskId,
       ])
     ).rows[0];
-    if (!task?.calendar_event_id)
+    if (!task?.calendar_event_id && !task?.calendar_lookup_key)
       throw new PublicError("Geen gekoppeld agendablok gevonden.", 404);
-    let event;
-    try {
-      event = await google<{
-        status?: string;
-        start?: { dateTime?: string };
-        end?: { dateTime?: string };
-      }>(
-        user,
-        "/calendar/v3/calendars/primary/events/" +
-          encodeURIComponent(task.calendar_event_id as string),
-      );
-    } catch (error) {
-      if (!(error instanceof ProviderError && error.status === 404))
-        throw error;
-    }
+    const { findCalendarEvent } = await import("../../../server/calendar");
+    const event = await findCalendarEvent(user, task);
     if (!event || event.status === "cancelled") {
       await database().query(
-        "UPDATE tasks SET calendar_event_id=null,calendar_status='none',scheduled_start=null,scheduled_end=null,version=version+1 WHERE user_id=$1 AND id=$2",
+        "UPDATE tasks SET calendar_event_id=null,calendar_lookup_key=null,calendar_status='none',scheduled_start=null,scheduled_end=null,version=version+1 WHERE user_id=$1 AND id=$2",
         [user.id, taskId],
       );
       return response({ found: false });
     }
     if (!event.start?.dateTime || !event.end?.dateTime)
       throw new PublicError(
-        "Controleer het agendablok handmatig in Google Agenda.",
+        "Controleer het agendablok handmatig in je agenda.",
         409,
       );
     await database().query(
-      "UPDATE tasks SET calendar_status='planned',scheduled_start=$1,scheduled_end=$2,version=version+1 WHERE user_id=$3 AND id=$4",
-      [event.start.dateTime, event.end.dateTime, user.id, taskId],
+      "UPDATE tasks SET calendar_status='planned',scheduled_start=$1,scheduled_end=$2,calendar_event_id=$5,version=version+1 WHERE user_id=$3 AND id=$4",
+      [event.start.dateTime, event.end.dateTime, user.id, taskId, event.id],
     );
     return response({ found: true });
   } catch (error) {

@@ -24,6 +24,8 @@ import type {
   Workspace,
 } from "../../server/types";
 import VoiceNote from "./voice";
+import ProviderButtons from "./provider-buttons";
+import type { Provider } from "../../server/provider-config";
 const zone = "Europe/Amsterdam";
 function today() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: zone }).format(
@@ -81,16 +83,43 @@ const empty: Workspace = {
 export default function Assistant({
   account,
   configured,
+  providers = { google: false, microsoft: false },
   aiReady,
   authFailed,
   revokeWarning,
 }: {
-  account: { name: string; email: string } | null;
+  account: {
+    name: string;
+    email: string;
+    loginProvider?: Provider;
+    provider?: Provider | null;
+    connectedEmail?: string | null;
+    capabilities?: {
+      readMail: boolean;
+      readCalendar: boolean;
+      sendMail: boolean;
+      writeCalendar: boolean;
+    };
+  } | null;
+  providers?: { google: boolean; microsoft: boolean };
   configured: boolean;
   aiReady: boolean;
   authFailed: boolean;
   revokeWarning: boolean;
 }) {
+  const connected = Boolean(account?.provider);
+  const permissions = account?.capabilities || {
+    readMail: false,
+    readCalendar: false,
+    sendMail: false,
+    writeCalendar: false,
+  };
+  const providerLabel =
+    account?.provider === "microsoft" ? "Microsoft" : "Google";
+  const mailboxEmail = account?.connectedEmail || account?.email || "";
+  const grant = (intent: "send" | "calendar") =>
+    `/api/auth/${account?.provider || "google"}?intent=${intent}`;
+  const [disconnect, setDisconnect] = useState(false);
   const [data, setData] = useState<Workspace>(empty);
   const [brief, setBrief] = useState("");
   const [meetingBrief, setMeetingBrief] = useState("");
@@ -122,10 +151,10 @@ export default function Assistant({
   const calendarSequence = useRef(0);
   const selected = data.mails.find((m) => m.id === selectedId);
   const sourceLink = (id: string) =>
-    `https://mail.google.com/mail/?authuser=${encodeURIComponent(account?.email || "")}#all/${encodeURIComponent(id)}`;
+    "/api/mail/open?id=" + encodeURIComponent(id);
   const refresh = useCallback(
     async (sync = false) => {
-      if (!account || refreshing.current) return;
+      if (!account || refreshing.current || (sync && !connected)) return;
       refreshing.current = true;
       try {
         const next = await api<Workspace>("/api/sync", sync ? "POST" : "GET");
@@ -145,10 +174,14 @@ export default function Assistant({
         refreshing.current = false;
       }
     },
-    [account],
+    [account, connected],
   );
   const loadCalendar = useCallback(async () => {
-    if (!account) return;
+    if (!account || !permissions.readCalendar) {
+      setEvents([]);
+      setCalendarLoaded(false);
+      return;
+    }
     const sequence = ++calendarSequence.current;
     setEventsError("");
     setCalendarLoaded(false);
@@ -168,23 +201,25 @@ export default function Assistant({
         );
       }
     }
-  }, [account, date]);
+  }, [account, date, permissions.readCalendar]);
   useEffect(() => {
     if (!account) return;
     let active = true;
     void (async () => {
       await refresh(false);
-      if (active) await refresh(true);
+      if (active && connected) await refresh(true);
     })();
     const update = () => {
       if (
+        connected &&
         document.visibilityState === "visible" &&
         Date.now() - lastSync.current > 60000
       )
         void refresh(true);
     };
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh(true);
+      if (connected && document.visibilityState === "visible")
+        void refresh(true);
     }, 300000);
     document.addEventListener("visibilitychange", update);
     return () => {
@@ -192,7 +227,7 @@ export default function Assistant({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", update);
     };
-  }, [account, refresh]);
+  }, [account, refresh, connected]);
   useEffect(() => {
     void loadCalendar();
   }, [loadCalendar]);
@@ -236,8 +271,11 @@ export default function Assistant({
     });
   }
   async function analyzeMail(mail: ConnectedMail) {
-    await run("Mail analyseren", async () => {
-      await api("/api/ai", "POST", { kind: "mail", mailId: mail.id });
+    await run(aiReady ? "Mail analyseren" : "Regelvoorstel maken", async () => {
+      await api(aiReady ? "/api/ai" : "/api/suggestions", "POST", {
+        kind: "mail",
+        mailId: mail.id,
+      });
       await refresh();
       setMessage(
         "Voorstellen en antwoordconcept staan klaar. Controleer de inhoud.",
@@ -269,7 +307,7 @@ export default function Assistant({
       setMessage(
         task.done
           ? "Taak heropend."
-          : "Taak afgerond. Een bestaand Google-agendablok blijft staan.",
+          : "Taak afgerond. Een bestaand agendablok blijft staan.",
       );
     });
   }
@@ -297,7 +335,7 @@ export default function Assistant({
       setDraft(null);
       setSendConfirm(false);
       await refresh();
-      setMessage("Antwoord verstuurd via Gmail.");
+      setMessage("Antwoord geaccepteerd door je maildienst.");
     });
   }
   useEffect(() => {
@@ -356,32 +394,34 @@ export default function Assistant({
           planner<span>pal</span>
           <span className="brand-mark">/</span>
         </a>
-        <nav aria-label="Assistentnavigatie">
-          <button
-            className={tab === "overzicht" ? "current" : ""}
-            onClick={() => setTab("overzicht")}
-          >
-            Mijn werkdag
-          </button>
-          <button
-            className={tab === "concepten" ? "current" : ""}
-            onClick={() => setTab("concepten")}
-          >
-            Antwoorden
-          </button>
-          <button
-            className={tab === "notities" ? "current" : ""}
-            onClick={() => setTab("notities")}
-          >
-            Gespreksnotities
-          </button>
-          <button
-            className={tab === "instellingen" ? "current" : ""}
-            onClick={() => setTab("instellingen")}
-          >
-            Instellingen
-          </button>
-        </nav>
+        {account && (
+          <nav aria-label="Assistentnavigatie">
+            <button
+              className={tab === "overzicht" ? "current" : ""}
+              onClick={() => setTab("overzicht")}
+            >
+              Mijn werkdag
+            </button>
+            <button
+              className={tab === "concepten" ? "current" : ""}
+              onClick={() => setTab("concepten")}
+            >
+              Antwoorden
+            </button>
+            <button
+              className={tab === "notities" ? "current" : ""}
+              onClick={() => setTab("notities")}
+            >
+              Gespreksnotities
+            </button>
+            <button
+              className={tab === "instellingen" ? "current" : ""}
+              onClick={() => setTab("instellingen")}
+            >
+              Instellingen
+            </button>
+          </nav>
+        )}
         <div className="top-actions">
           <a className="source" href="/">
             Demo
@@ -395,87 +435,56 @@ export default function Assistant({
       </header>
       {!account ? (
         <main className="connect-landing">
-          <span className="overline">JOUW PERSOONLIJKE ASSISTENT</span>
+          <span className="overline">JE WERKDAG, OP ÉÉN PLEK</span>
           <h1>
-            Je mail en agenda.
+            Begin met je account.
             <br />
-            Eén volgende stap.
+            De rest volgt vanzelf.
           </h1>
           <p>
-            Verbind Gmail en je primaire Google-agenda. Laat taken en antwoorden
-            voorstellen en kies zelf wat wordt uitgevoerd.
+            Meld je aan met Google of Microsoft. Verbind daarna je mail en
+            agenda wanneer je daar klaar voor bent.
           </p>
-          {revokeWarning && (
-            <div className="alert" role="status">
-              Je gegevens zijn verwijderd. Verwijder de resterende
-              PlannerPal-toegang ook via{" "}
-              <a
-                href="https://myaccount.google.com/connections"
-                target="_blank"
-                rel="noreferrer"
-              >
-                je Google-account
-              </a>
-              .
-            </div>
-          )}
           {authFailed && (
             <div className="alert" role="alert">
-              Google verbinden is niet gelukt. Controleer of je het toegestane
-              account hebt gekozen, alle gevraagde rechten hebt aangevinkt en de
-              serverinstellingen compleet zijn.
+              Aanmelden of verbinden is niet gelukt. Probeer opnieuw en geef de
+              gevraagde toestemming. Zakelijke accounts kunnen goedkeuring van
+              hun beheerder nodig hebben.
             </div>
           )}
-          <div className="connect-features">
+          {revokeWarning && (
+            <div className="alert">
+              Je gegevens zijn verwijderd. Controleer de app-toestemming ook in
+              de instellingen van je Google- of Microsoft-account.
+            </div>
+          )}
+          <ProviderButtons available={providers} disabled={!configured} />
+          {(!configured || (!providers.google && !providers.microsoft)) && (
+            <p className="form-hint">
+              Aanmelden is tijdelijk niet beschikbaar. Je kunt ondertussen de
+              demo proberen.
+            </p>
+          )}
+          <div className="signup-explainer">
+            <Check size={17} />
             <span>
-              <Mail size={20} />
-              Gmail lezen en antwoorden na akkoord
-            </span>
-            <span>
-              <Check size={20} />
-              Taken bewaren op je account
-            </span>
-            <span>
-              <Mic size={20} />
-              Acties uit jouw gespreksnotities
+              Inloggen geeft ons nog geen toegang tot je mail of agenda.
             </span>
           </div>
-          {configured ? (
-            <a className="primary" href="/api/auth/google">
-              Verbinden met Google
-              <ArrowRight size={16} />
-            </a>
-          ) : (
-            <div className="setup-callout">
-              <strong>De verbinding moet nog worden ingesteld.</strong>
-              <p>
-                De app is voorbereid. Google-toegang en beveiligde opslag moeten
-                eerst door de beheerder worden geactiveerd.
-              </p>
-              <a
-                href="https://github.com/frisobrink2/PlannerPal/blob/main/docs/CONNECT.md"
-                target="_blank"
-                rel="noreferrer"
-                className="secondary"
-              >
-                Installatiestappen bekijken
-                <ArrowRight size={14} />
-              </a>
-            </div>
-          )}
+          <div className="signup-explainer">
+            <ShieldCheck size={17} />
+            <span>Je werkplek en gegevens zijn alleen voor jou.</span>
+          </div>
           <div className="install-tip">
             <Smartphone size={22} />
             <div>
-              <strong>Op je iPhone</strong>
-              <p>
-                Open deze pagina in Safari. Tik op Deel → Zet op beginscherm. De
-                app gebruikt een internetverbinding.
-              </p>
+              <strong>Ook op je iPhone</strong>
+              <p>Open in Safari → Deel → Zet op beginscherm.</p>
             </div>
           </div>
           <p className="privacy-link">
-            <a href="/privacy">Hoe we met je gegevens omgaan</a> ·{" "}
-            <a href="/">Eerst de demo proberen</a>
+            <a href="/privacy">Privacy</a> · <a href="/">Demo proberen</a> ·{" "}
+            <a href="/admin">Voor de beheerder</a>
           </p>
         </main>
       ) : (
@@ -483,8 +492,7 @@ export default function Assistant({
           <div className="heading">
             <div>
               <span className="overline">
-                {account.name.split(" ")[0].toUpperCase()} · GMAIL & GOOGLE
-                AGENDA
+                {account.name.split(" ")[0].toUpperCase()} · JOUW WERKPLEK
               </span>
               <h1>
                 {tab === "overzicht"
@@ -501,7 +509,9 @@ export default function Assistant({
                   : tab === "concepten"
                     ? "Lees, bewerk en verstuur een antwoord pas als het klopt."
                     : tab === "notities"
-                      ? "Spreek na je gesprek een notitie in, of voeg je eigen opname toe."
+                      ? aiReady
+                        ? "Spreek na je gesprek een notitie in, of voeg je eigen opname toe."
+                        : "Noteer je afspraken en kies welke acties je wilt bewaren."
                       : "Beheer toegang, bekijk uitgevoerde acties en installeer de app."}
               </p>
             </div>
@@ -514,6 +524,51 @@ export default function Assistant({
               Nieuwe taak
             </button>
           </div>
+          {revokeWarning && (
+            <div className="alert" role="status">
+              Je lokale koppeling is verwijderd. Trek de resterende toestemming
+              in via{" "}
+              <a
+                href="https://myaccount.google.com/connections"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Google
+              </a>
+              ,{" "}
+              <a
+                href="https://account.live.com/consent/Manage"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Microsoft persoonlijk
+              </a>{" "}
+              of{" "}
+              <a
+                href="https://myapplications.microsoft.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Microsoft zakelijk
+              </a>
+              .
+            </div>
+          )}
+          {!connected && (
+            <section className="connect-next">
+              <span className="overline">AANGEMELD · VOLGENDE STAP</span>
+              <h2>Verbind je mail en agenda</h2>
+              <p>
+                Kies je mailaccount. Je krijgt het officiële toestemmingsscherm
+                van Google of Microsoft. Eerst vragen we alleen om te lezen;
+                verzenden en afspraken toevoegen kun je later apart activeren.
+              </p>
+              <ProviderButtons available={providers} intent="connect" />
+              <p className="form-hint">
+                Liever later? Je kunt alvast eigen taken en notities toevoegen.
+              </p>
+            </section>
+          )}
           {error && (
             <div className="alert" role="alert">
               {error}
@@ -545,8 +600,8 @@ export default function Assistant({
           )}
           {!aiReady && (
             <div className="setup-callout compact">
-              AI is nog niet geactiveerd. Je kunt mail en agenda gebruiken en
-              zelf taken toevoegen.
+              Betaalde AI staat uit. Gebruik gratis regelvoorstellen,
+              standaardantwoorden en eigen taken.
             </div>
           )}
           {tab === "overzicht" && (
@@ -568,12 +623,14 @@ export default function Assistant({
                 <div className="sync-controls">
                   <span>
                     {syncedAt
-                      ? `Gmail bijgewerkt om ${syncedAt}`
-                      : "Gmail wordt opgehaald…"}
+                      ? `Mail bijgewerkt om ${syncedAt}`
+                      : connected
+                        ? "Mail wordt opgehaald…"
+                        : "Nog geen mailaccount verbonden"}
                   </span>
                   <button
                     className="secondary"
-                    disabled={Boolean(busy)}
+                    disabled={Boolean(busy) || !connected}
                     onClick={() =>
                       void run("Ophalen", async () => {
                         await refresh(true);
@@ -594,13 +651,13 @@ export default function Assistant({
                     {wanted > free && " Niet alles past op deze dag."}
                   </>
                 ) : (
-                  "Agenda wordt opgehaald. Beschikbare tijd is nog niet bekend."
+                  "Verbind je agenda om de beschikbare tijd voor deze dag te zien."
                 )}
               </p>
               <div className="assistant-actions">
                 <button
                   className="secondary"
-                  disabled={!aiReady || Boolean(busy)}
+                  disabled={!permissions.readCalendar || Boolean(busy)}
                   onClick={() =>
                     void run("Dagoverzicht maken", async () => {
                       const result = await api<{ text: string }>(
@@ -616,7 +673,7 @@ export default function Assistant({
                 </button>
                 <button
                   className="secondary"
-                  disabled={Boolean(busy)}
+                  disabled={Boolean(busy) || !permissions.readMail}
                   onClick={() =>
                     void run("Wachtende gesprekken bekijken", async () => {
                       const result = await api<{
@@ -631,7 +688,7 @@ export default function Assistant({
               </div>
               {brief && (
                 <section className="brief-panel">
-                  <span className="overline">JOUW DAG · AI-VOORSTEL</span>
+                  <span className="overline">JOUW DAG · OVERZICHT</span>
                   <p>{brief}</p>
                   <small>
                     Gebaseerd op je primaire agenda, maximaal 30 openstaande
@@ -777,8 +834,8 @@ export default function Assistant({
                             t.calendar_status === "pending" ? (
                               <div>
                                 <p className="form-error">
-                                  De agenda-actie is onzeker. Controleer Google
-                                  Agenda voordat je opnieuw plant.
+                                  De agenda-actie is onzeker. Controleer je
+                                  agenda voordat je opnieuw plant.
                                 </p>
                                 <button
                                   className="secondary"
@@ -797,7 +854,7 @@ export default function Assistant({
                                         setMessage(
                                           result.found
                                             ? "Agendablok teruggevonden."
-                                            : "Google heeft geen actief blok gevonden. Je kunt de taak opnieuw inplannen.",
+                                            : "Je agenda bevat geen actief blok met deze koppeling. Je kunt de taak opnieuw inplannen.",
                                         );
                                       },
                                     )
@@ -815,7 +872,7 @@ export default function Assistant({
                                     target="_blank"
                                     rel="noreferrer"
                                   >
-                                    Bronmail in Gmail
+                                    Bronmail openen
                                   </a>
                                 ) : (
                                   <span className="manual-label">
@@ -847,7 +904,17 @@ export default function Assistant({
                                     Agenda controleren
                                   </button>
                                 )}
-                                {!t.done && (
+                                {!t.done &&
+                                  !permissions.writeCalendar &&
+                                  connected && (
+                                    <a
+                                      className="plan-button"
+                                      href={grant("calendar")}
+                                    >
+                                      Plannen activeren →
+                                    </a>
+                                  )}
+                                {!t.done && permissions.writeCalendar && (
                                   <button
                                     className="plan-button"
                                     onClick={() =>
@@ -879,14 +946,18 @@ export default function Assistant({
                 </section>
                 <section className="column connected-column">
                   <div className="column-head">
-                    <h2>Google Agenda</h2>
+                    <h2>{connected ? providerLabel + " Agenda" : "Agenda"}</h2>
                     <span className="column-meta">Primaire agenda</span>
                   </div>
                   <div className="real-agenda">
                     {eventsError ? (
                       <p className="form-error">{eventsError}</p>
                     ) : !calendarLoaded ? (
-                      <p className="empty">Agenda ophalen…</p>
+                      <p className="empty">
+                        {connected
+                          ? "Agenda ophalen…"
+                          : "Verbind je mail en agenda om afspraken te zien."}
+                      </p>
                     ) : events.length === 0 ? (
                       <p className="empty">Geen afspraken op deze dag.</p>
                     ) : (
@@ -903,7 +974,9 @@ export default function Assistant({
                           <h3>{e.summary || "Afspraak"}</h3>
                           <button
                             className="source"
-                            disabled={!aiReady || Boolean(busy)}
+                            disabled={
+                              !permissions.readCalendar || Boolean(busy)
+                            }
                             onClick={() =>
                               void run("Afspraak voorbereiden", async () => {
                                 const result = await api<{ text: string }>(
@@ -923,11 +996,15 @@ export default function Assistant({
                   </div>
                   <a
                     className="column-foot"
-                    href={`https://calendar.google.com/calendar/?authuser=${encodeURIComponent(account.email)}`}
+                    href={
+                      account.provider === "microsoft"
+                        ? "https://outlook.office.com/calendar/"
+                        : `https://calendar.google.com/calendar/?authuser=${encodeURIComponent(mailboxEmail)}`
+                    }
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open Google Agenda →
+                    Open je agenda →
                   </a>
                 </section>
               </div>
@@ -950,7 +1027,7 @@ export default function Assistant({
                           draft: "Concept",
                           sending: "Bezig met verzenden",
                           sent: "Verstuurd",
-                          uncertain: "Controleer Gmail",
+                          uncertain: "Controleer Verzonden",
                           failed: "Niet verstuurd",
                         }[d.status]
                       }
@@ -971,7 +1048,7 @@ export default function Assistant({
                   ) : d.status === "uncertain" || d.status === "sending" ? (
                     <div>
                       <p className="form-hint">
-                        Controleer Verzonden in Gmail. We versturen dit antwoord
+                        Controleer je map Verzonden. We versturen dit antwoord
                         niet opnieuw zonder een bevestigde status.
                       </p>
                       <button
@@ -988,7 +1065,7 @@ export default function Assistant({
                             setMessage(
                               result.resolved
                                 ? "Het antwoord staat in Verzonden."
-                                : "Nog geen bevestiging gevonden. Controleer Verzonden in Gmail; verstuur niet opnieuw zolang dit onzeker is.",
+                                : "Nog geen bevestiging gevonden. Controleer je map Verzonden; verstuur niet opnieuw zolang dit onzeker is.",
                             );
                           })
                         }
@@ -998,7 +1075,7 @@ export default function Assistant({
                     </div>
                   ) : (
                     <p className="form-hint">
-                      Dit antwoord is via je Gmail-account verstuurd.
+                      Dit antwoord is via je mailaccount verstuurd.
                     </p>
                   )}
                 </article>
@@ -1014,10 +1091,15 @@ export default function Assistant({
           {tab === "notities" && (
             <>
               <VoiceNote
-                disabled={!aiReady || Boolean(busy)}
+                disabled={Boolean(busy)}
+                canTranscribe={aiReady}
                 onTranscript={async (text) => {
                   await run("Acties uit notitie halen", async () => {
-                    await api("/api/ai", "POST", { kind: "note", text });
+                    await api(
+                      aiReady ? "/api/ai" : "/api/suggestions",
+                      "POST",
+                      { kind: "note", text },
+                    );
                     await refresh();
                     setMessage(
                       "Notitie verwerkt. Kies welke voorgestelde acties je wilt bewaren.",
@@ -1072,14 +1154,47 @@ export default function Assistant({
             <div className="settings-grid">
               <section className="draft-card">
                 <ShieldCheck size={23} />
-                <h2>Verbonden met Google</h2>
-                <p>{account.email}</p>
+                <h2>Je account</h2>
+                <p>Aangemeld als {account.email}</p>
                 <p>
-                  Gmail en je primaire agenda worden opgehaald wanneer je de app
-                  opent. Nieuwe mail wordt iedere vijf minuten opgehaald zolang
-                  de app zichtbaar is. AI verwerkt alleen wat je zelf laat
-                  analyseren.
+                  {connected
+                    ? `Mail en agenda verbonden met ${providerLabel}: ${mailboxEmail}`
+                    : "Nog geen mailaccount verbonden. Je eigen taken blijven beschikbaar."}
                 </p>
+                {connected && (
+                  <div className="permission-list">
+                    <span>
+                      <Check size={13} />
+                      Mail en agenda lezen
+                    </span>
+                    {permissions.sendMail ? (
+                      <span>
+                        <Check size={13} />
+                        Antwoorden versturen na bevestiging
+                      </span>
+                    ) : (
+                      <a className="secondary" href={grant("send")}>
+                        Verzenden activeren
+                      </a>
+                    )}
+                    {permissions.writeCalendar ? (
+                      <span>
+                        <Check size={13} />
+                        Agendablokken maken na bevestiging
+                      </span>
+                    ) : (
+                      <a className="secondary" href={grant("calendar")}>
+                        Plannen activeren
+                      </a>
+                    )}
+                    <button
+                      className="secondary"
+                      onClick={() => setDisconnect(true)}
+                    >
+                      Mail en agenda loskoppelen
+                    </button>
+                  </div>
+                )}
                 <button
                   className="secondary"
                   onClick={() =>
@@ -1095,7 +1210,7 @@ export default function Assistant({
                   className="danger"
                   onClick={() => setRemoveAccount(true)}
                 >
-                  Toegang intrekken & gegevens verwijderen
+                  Accountgegevens verwijderen
                 </button>
               </section>
               <section className="draft-card">
@@ -1103,7 +1218,7 @@ export default function Assistant({
                 <h2>Op je iPhone</h2>
                 <p>
                   Open in Safari → Deel → Zet op beginscherm. Log daarna in de
-                  geïnstalleerde app in met Google.
+                  geïnstalleerde app in met Google of Microsoft.
                 </p>
                 <p>
                   Opnames beginnen alleen na jouw actie. Er wordt niet op de
@@ -1130,7 +1245,7 @@ export default function Assistant({
             </div>
           )}
           <footer>
-            <span>Verbonden als {account.email}</span>
+            <span>Aangemeld als {account.email}</span>
             <span>Alleen jouw goedgekeurde acties worden uitgevoerd.</span>
           </footer>
         </main>
@@ -1138,7 +1253,7 @@ export default function Assistant({
       {meetingBrief && (
         <Dialog
           title="Voorbereiding op je afspraak"
-          label="AI-VOORSTEL"
+          label="OVERZICHT OP BASIS VAN JE TAKEN"
           onClose={() => setMeetingBrief("")}
         >
           <p className="mail-body preserved">{meetingBrief}</p>
@@ -1151,7 +1266,7 @@ export default function Assistant({
       {selected && (
         <Dialog
           title={selected.subject}
-          label="GMAIL"
+          label="BRONMAIL"
           side
           onClose={() => setSelectedId(null)}
         >
@@ -1208,16 +1323,17 @@ export default function Assistant({
             <div className="proposal">
               <h3>Wat moet hiermee gebeuren?</h3>
               <p>
-                Bij analyseren wordt de tekst van deze mail naar OpenAI gestuurd
-                voor taakvoorstellen en een antwoordconcept. Er wordt niets
-                automatisch verstuurd.
+                {aiReady
+                  ? "Bij analyseren gaat de mailtekst naar de ingestelde AI-dienst."
+                  : "We maken een regelvoorstel en een standaardantwoord. De inhoud wordt niet naar een AI-dienst gestuurd."}{" "}
+                Er wordt niets automatisch verstuurd.
               </p>
               <button
                 className="primary"
-                disabled={Boolean(busy) || !aiReady}
+                disabled={Boolean(busy)}
                 onClick={() => void analyzeMail(selected)}
               >
-                Mail analyseren
+                {aiReady ? "Mail analyseren" : "Regelvoorstel maken"}
               </button>
             </div>
           )}
@@ -1391,7 +1507,7 @@ export default function Assistant({
       )}
       {plan && (
         <Dialog
-          title="In Google Agenda zetten"
+          title="In je agenda zetten"
           label="BEVESTIG DE AFSPRAAK"
           onClose={() => setPlan(null)}
         >
@@ -1421,8 +1537,8 @@ export default function Assistant({
                 if (plan.date === date) await loadCalendar();
                 setMessage(
                   result.uncertain
-                    ? "Geen bevestiging van Google ontvangen. Controleer je agenda voordat je opnieuw plant."
-                    : "Taak staat in Google Agenda.",
+                    ? "Geen bevestiging van je agenda ontvangen. Controleer je agenda voordat je opnieuw plant."
+                    : "Taak staat in je agenda.",
                 );
               });
             }}
@@ -1467,7 +1583,7 @@ export default function Assistant({
           title={
             sendConfirm ? "Dit antwoord versturen?" : "Antwoord controleren"
           }
-          label="ECHTE GMAIL"
+          label="ANTWOORDCONTROLLE"
           onClose={() => {
             setDraft(null);
             setSendConfirm(false);
@@ -1481,7 +1597,7 @@ export default function Assistant({
             <>
               <p className="draft-preview send-preview">{draft.body}</p>
               <p className="form-hint">
-                Dit verstuurt onderstaande tekst nu vanuit {account?.email}. Een
+                Dit verstuurt onderstaande tekst nu vanuit {mailboxEmail}. Een
                 verzonden mail kun je hier niet terughalen.
               </p>
               <div className="dialog-actions">
@@ -1527,10 +1643,24 @@ export default function Assistant({
                 >
                   Wijzigingen bewaren
                 </button>
+                {!permissions.sendMail &&
+                  connected &&
+                  (draftChanged ? (
+                    <button className="primary" disabled>
+                      Bewaar eerst je wijzigingen
+                    </button>
+                  ) : (
+                    <a className="primary" href={grant("send")}>
+                      Verzenden activeren
+                    </a>
+                  ))}
                 <button
                   className="primary"
                   disabled={
-                    Boolean(busy) || draftChanged || draft.status !== "draft"
+                    Boolean(busy) ||
+                    draftChanged ||
+                    draft.status !== "draft" ||
+                    !permissions.sendMail
                   }
                   onClick={() => setSendConfirm(true)}
                 >
@@ -1551,6 +1681,46 @@ export default function Assistant({
           )}
         </Dialog>
       )}
+      {disconnect && (
+        <Dialog
+          title="Mail en agenda loskoppelen?"
+          label="JE VERBINDING"
+          onClose={() => setDisconnect(false)}
+        >
+          <p className="reset-description">
+            Je blijft aangemeld. Je taken en notities blijven bewaard.
+            Opgehaalde mail en concepten worden verwijderd. Bestaande afspraken
+            en verstuurde mails blijven bij je aanbieder staan.
+          </p>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => setDisconnect(false)}>
+              Annuleren
+            </button>
+            <button
+              className="primary"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void run("Loskoppelen", async () => {
+                  const result = await api<{
+                    revoked: boolean;
+                    provider: string;
+                  }>("/api/connections", "DELETE", { confirmed: true });
+                  if (!result.revoked) {
+                    setMessage(
+                      "Losgekoppeld. Verwijder de app-toestemming ook bij je mailaanbieder.",
+                    );
+                  }
+                  location.assign(
+                    "/assistant" + (!result.revoked ? "?revoke=manual" : ""),
+                  );
+                })
+              }
+            >
+              Loskoppelen
+            </button>
+          </div>
+        </Dialog>
+      )}
       {removeAccount && (
         <Dialog
           title="Verbinding en gegevens verwijderen?"
@@ -1558,9 +1728,9 @@ export default function Assistant({
           onClose={() => setRemoveAccount(false)}
         >
           <p className="reset-description">
-            We trekken Google-toegang in en verwijderen jouw taken, opgeslagen
-            mailteksten, notities, concepten en actielog uit PlannerPal. Mails
-            en afspraken in Google blijven bestaan.
+            We verwijderen jouw taken, opgeslagen mailteksten, notities,
+            concepten en actielog uit PlannerPal. Mails en afspraken bij je
+            mailaanbieder blijven bestaan.
           </p>
           <div className="dialog-actions">
             <button

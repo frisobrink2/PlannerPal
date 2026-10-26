@@ -1,6 +1,6 @@
 # PlannerPal
 
-Een Nederlandstalige werkplek voor zelfstandige professionals. De demo op **/** gebruikt fictieve mails en lokale opslag. De echte assistent op **/assistant** koppelt Gmail, Google Agenda, accountopslag en AI nadat je de serverinstellingen hebt aangesloten. Zie [de aansluitinstructies](docs/CONNECT.md).
+Een Nederlandstalige werkplek voor zelfstandige professionals. De demo op **/** gebruikt fictieve mails en lokale opslag. De app op **/assistant** ondersteunt aanmelden via Google of Microsoft, accountopslag en optionele mail-/agendakoppeling. Betaalde AI staat standaard uit. Zie [de aansluitinstructies](docs/CONNECT.md).
 
 ## Starten
 
@@ -77,25 +77,31 @@ De browserroute controleert voorstellen, handmatige taken, bewerken, verwijderen
 - Opslag is per browser en origin; geen synchronisatie, back-up, encryptie of conflictregeling tussen tabbladen. Bij een andere deploy-URL zie je een aparte werkplek. Geen vertrouwelijke gegevens invoeren.
 - Alleen gegevens worden bewaard: de actieve datum, filters, schermkeuze en undo-geschiedenis beginnen na herladen opnieuw.
 
-## Echte assistent voor Gmail en iPhone
+## Google en Microsoft: aanmelden en verbinden
 
-De echte assistent staat op **`/assistant`**. De bestaande demo op `/` blijft zelfstandig werken zonder inloggen, database of AI-sleutel. In de demo brengt **Mijn assistent** je naar de nieuwe route.
+De echte app staat op **/assistant**. Iedere gebruiker kiest Google of Microsoft en krijgt een eigen werkplek. Aanmelden vraagt alleen identiteitsrechten. Mail en agenda verbinden, verzenden activeren en plannen activeren zijn daarna aparte toestemmingsstappen. Er is geen ALLOWED_GOOGLE_EMAIL-beperking meer en gebruikers vullen geen sleutels in.
 
-Aansluiten op `https://planner-pal.vercel.app` staat stap voor stap in **[docs/CONNECT.md](docs/CONNECT.md)**. Er zijn Google OAuth-instellingen, PostgreSQL en een OpenAI API-sleutel nodig. Gebruik `.env.example` als namenlijst; vul waarden alleen in beveiligde serverinstellingen in. Zonder instellingen toont de app een aansluitpagina en doet hij geen echte externe acties.
+De eigenaar configureert eenmalig Vercel, Neon, SESSION_SECRET en de OAuth-appregistraties van de gewenste providers. Zie **[docs/CONNECT.md](docs/CONNECT.md)** en **/admin**. De Google-callback blijft `/api/auth/callback`; Microsoft gebruikt `/api/auth/callback/microsoft`.
 
-Gebouwd: Google-login met PKCE en statecontrole; versleutelde Google-tokens en gehashte sessies; Gmail ophalen; primaire agenda ophalen; AI-samenvattingen, taakvoorstellen en antwoordconcepten; handmatige taken; revisiegebonden bevestiging voor echte mailverzending; overlapcontrole en deterministische Google-event-ID's; actielog en accountverwijdering; eigen spraaknotities/transcriptie; dagoverzicht, afspraakvoorbereiding en mogelijke wachtende gesprekken; iPhone-webappmanifest en iconen.
+**Betaalde AI staat standaard op de server uit**, ook wanneer een API-sleutel is ingesteld. De normale gebruikersroute gebruikt regelvoorstellen, standaardantwoorden, getypte notities en een vast dagoverzicht. Er zijn daarbij geen AI-aanroepen of transcriptiekosten. Hosting en database hebben hun eigen abonnementen en limieten; onbeperkte gratis exploitatie wordt niet beloofd.
 
-Privégegevens van de gekoppelde assistent worden niet in localStorage of een serviceworker-cache bewaard. De browser ontvangt geen toegangstokens, OAuth-secret, databasewachtwoord of AI-sleutel. AI heeft geen tools of verzendrechten: serverroutes voeren alleen afzonderlijk bevestigde acties uit. Echte mail kan niet worden teruggehaald via de demo-undo.
+OAuth controleert PKCE, state, nonce en geverifieerde ID-tokens. Tokens worden versleuteld opgeslagen in `connections`; provider-identiteiten staan in `auth_identities`. Werkplekken worden nooit automatisch samengevoegd op e-mailadres. Eén werkplek kan één mailbox tegelijk verbinden. Loskoppelen behoudt taken/notities, verwijdert cached mail/concepten en verwijdert externe koppelingen; externe mails en afspraken blijven bij de provider bestaan.
 
-Aanvullende checks:
+Productiebuilds op Vercel passen automatisch de versiebeheerste SQL-migraties toe als DATABASE_URL is ingesteld. Lokale en preview-builds doen dat niet. Migratie 002 bewaart bestaande Google-gebruikers, taken, sessies en de versleutelde verbinding. Toegepaste migraties krijgen checksums en worden niet opnieuw gewijzigd. Gebruik voor latere wijzigingen een nieuwe migratie.
+
+Aanvullende controles:
 
 ```bash
-npm run test:server   # PGlite: werkelijk PostgreSQL-schema, broncontrole, revisies, atomaire verzending, agenda en fouten
-npm run test:connected # Echte aansluitpagina, PWA en afwijzen van niet-ingelogde acties; eerst server starten
-npm run test:ui       # Gekoppelde interface met gemockte netwerkresponses; geen echte mails of AI-aanroepen
-npm run db:migrate   # Alleen met je eigen ingestelde DATABASE_URL; idem SQL-editor van databaseprovider
+npm run test:server
+npm run test:providers
+npm run test:ui
+# Start eerst de app voor browserchecks:
+npm run test:connected
+npm run test:e2e
+# Alleen bij bewust gekozen databaseonderhoud met DATABASE_URL ingesteld:
+npm run db:migrate
 ```
 
-Testuitkomsten met fixtures bewijzen niet dat jouw Google OAuth-toestemming, productie-database of OpenAI-sleutel werken. De daadwerkelijke eigenaarstest in CONNECT.md blijft nodig na configuratie. Er is nog geen onafhankelijke beveiligingsaudit of validatie op een fysieke iPhone uitgevoerd.
+De servertests gebruiken een lokale PostgreSQL-engine (PGlite), geen productiegegevens. Provider- en UI-tests gebruiken fixtures, getekende test-ID-tokens en gemockte HTTP-responses. Ze controleren de migratie, scopes, gescheiden werkplekken, tokenrotatie, callbackbeveiliging, betaald-AI-blokkade, Microsoft mail/agenda, revisies, dubbele acties en de vrije gebruikersroute. Echte toestemming en bedrijfsbeleid moeten na appregistratie nog met Google/Microsoft worden getest. Er is geen onafhankelijke beveiligingsaudit of fysieke iPhone-test uitgevoerd.
 
-Huidige grenzen: één toegestaan Gmail-account; primaire Google-agenda; twintig inboxmails; maximaal vijf voorstellen per analyse; takenoverzicht maximaal 500; maximaal vijftig concepten en tien notities in het overzicht. Wachtende gesprekken worden afgeleid uit maximaal tien verzonden mails van drie tot veertien dagen oud. AI-overzichten gebruiken maximaal dertig openstaande taken en tien recente inboxmails. Opnames zijn expliciet gestart, maximaal negentig seconden/4 MB. Geen automatische call-opname, pushmeldingen, cronjobs of gegarandeerde iOS-achtergrondsynchronisatie. Zie CONNECT.md voor herstel bij een onzekere externe actie.
+Beperkingen: één verbonden mailbox, een primaire/default agenda, twintig inboxmails en de bestaande begrensde overzichten. Geen pushwebhooks, cronjobs of gegarandeerde iOS-achtergrondsynchronisatie. Geen telefoongesprekken beluisteren. Audio-transcriptie is een optionele betaalde uitbreiding en staat uit. Voor bredere Gmail-toegang kunnen Google-verificatie en aanvullende beoordelingen nodig zijn.

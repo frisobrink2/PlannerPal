@@ -1,6 +1,13 @@
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import { z } from "zod";
 import { google, accessToken } from "./google";
+import {
+  microsoftCalendar,
+  microsoftWrite,
+  graph,
+  graphEvent,
+  type GraphEvent,
+} from "./microsoft";
 import { hash } from "./crypto";
 import { audit, transaction, type Queryable } from "./db";
 import { timeZone } from "./config";
@@ -24,6 +31,7 @@ export type CalendarEvent = {
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
   htmlLink?: string;
+  lookupKey?: string;
 };
 export function rangeFor(date: string) {
   const start = fromZonedTime(date + "T00:00:00", timeZone);
@@ -39,6 +47,8 @@ export function rangeFor(date: string) {
 }
 export async function calendarEvents(user: Account, date: string) {
   const range = rangeFor(date);
+  if (user.provider === "microsoft")
+    return microsoftCalendar(user, range.start, range.end);
   const all: CalendarEvent[] = [];
   let token = "";
   do {
@@ -100,7 +110,10 @@ const calendarDependencies: CalendarDependencies = {
   },
   transact: transaction,
   list: calendarEvents,
-  write: google,
+  write: (user, path, init) =>
+    user.provider === "microsoft"
+      ? microsoftWrite(user, path, init)
+      : google(user, path, init),
 };
 export async function scheduleTask(
   user: Account,
@@ -127,7 +140,7 @@ export async function scheduleTask(
       );
     if (["pending", "uncertain"].includes(task.calendar_status as string))
       throw new PublicError(
-        "Controleer eerst de onzekere agenda-actie in Google Agenda.",
+        "Controleer eerst de onzekere agenda-actie in je agenda.",
         409,
       );
     const start = fromZonedTime(
@@ -157,7 +170,7 @@ export async function scheduleTask(
     );
     if (ownBlocks.rows.length)
       throw new PublicError(
-        "Dit moment is al gereserveerd vanuit PlannerPal. Controleer de agendastatus als je het blok zelf in Google hebt gewijzigd.",
+        "Dit moment is al gereserveerd vanuit PlannerPal. Controleer de agendastatus als je het blok zelf bij je aanbieder hebt gewijzigd.",
         409,
       );
     // Keep a deterministic provider ID if confirmation is lost; no automatic retry.
@@ -184,9 +197,19 @@ export async function scheduleTask(
           }),
         },
       );
+      if (
+        !receipt ||
+        typeof receipt !== "object" ||
+        !("id" in receipt) ||
+        typeof receipt.id !== "string"
+      )
+        throw new Error("Missing event receipt");
+      if (user.provider !== "microsoft" && receipt.id !== eventId)
+        throw new Error("Calendar receipt does not match the requested event");
+      const actualId = receipt.id;
       await db.query(
         "UPDATE tasks SET calendar_event_id=$1,calendar_status='planned',scheduled_start=$2,scheduled_end=$3,work_date=$4,version=version+1 WHERE id=$5 AND user_id=$6",
-        [eventId, start, end, input.date, task.id, user.id],
+        [actualId, start, end, input.date, task.id, user.id],
       );
       await audit(
         db,
@@ -204,8 +227,16 @@ export async function scheduleTask(
         error.status !== 409;
       if (!rejected) {
         await db.query(
-          "UPDATE tasks SET calendar_event_id=$1,calendar_status='uncertain',scheduled_start=$2,scheduled_end=$3,work_date=$4,version=version+1 WHERE id=$5 AND user_id=$6",
-          [eventId, start, end, input.date, task.id, user.id],
+          "UPDATE tasks SET calendar_event_id=$1,calendar_lookup_key=$7,calendar_status='uncertain',scheduled_start=$2,scheduled_end=$3,work_date=$4,version=version+1 WHERE id=$5 AND user_id=$6",
+          [
+            user.provider === "microsoft" ? task.calendar_event_id : eventId,
+            start,
+            end,
+            input.date,
+            task.id,
+            user.id,
+            eventId,
+          ],
         );
         await audit(
           db,
@@ -219,4 +250,49 @@ export async function scheduleTask(
       throw error;
     }
   });
+}
+
+export async function findCalendarEvent(
+  user: Account,
+  task: Record<string, unknown>,
+) {
+  if (user.provider === "microsoft") {
+    if (task.calendar_event_id) {
+      try {
+        return graphEvent(
+          await graph<GraphEvent>(
+            user,
+            "/events/" + encodeURIComponent(task.calendar_event_id as string),
+          ),
+        );
+      } catch (error) {
+        if (error instanceof ProviderError && error.status === 404) return null;
+        throw error;
+      }
+    }
+    if (task.calendar_lookup_key) {
+      const events = await calendarEvents(
+        user,
+        String(
+          task.work_date instanceof Date
+            ? task.work_date.toISOString().slice(0, 10)
+            : task.work_date,
+        ),
+      );
+      return (
+        events.find((e) => e.lookupKey === task.calendar_lookup_key) || null
+      );
+    }
+    return null;
+  }
+  try {
+    return await google<CalendarEvent>(
+      user,
+      "/calendar/v3/calendars/primary/events/" +
+        encodeURIComponent(task.calendar_event_id as string),
+    );
+  } catch (error) {
+    if (error instanceof ProviderError && error.status === 404) return null;
+    throw error;
+  }
 }

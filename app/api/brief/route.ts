@@ -1,10 +1,7 @@
 import { z } from "zod";
-import { formatInTimeZone } from "date-fns-tz";
 import { requireUser } from "../../../server/auth";
 import { database } from "../../../server/db";
-import { analyzeText, rateLimit } from "../../../server/ai";
 import { calendarEvents, dateString } from "../../../server/calendar";
-import { timeZone, aiKey } from "../../../server/config";
 import {
   sameOrigin,
   jsonBody,
@@ -12,12 +9,10 @@ import {
   routeError,
   PublicError,
 } from "../../../server/http";
-export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const user = await requireUser();
-    aiKey();
     const input = z
       .object({
         date: dateString,
@@ -27,38 +22,20 @@ export async function POST(request: Request) {
     const events = await calendarEvents(user, input.date);
     const event = input.eventId
       ? events.find((e) => e.id === input.eventId)
-      : undefined;
+      : null;
     if (input.eventId && !event)
-      throw new PublicError(
-        "Deze afspraak is niet gevonden op de gekozen dag.",
-        404,
-      );
-    const [tasks, mails] = await Promise.all([
-      database().query(
-        "SELECT title,duration,priority,deadline::text,work_date::text,calendar_status FROM tasks WHERE user_id=$1 AND done=false ORDER BY deadline LIMIT 30",
-        [user.id],
-      ),
-      database().query(
-        "SELECT id,subject,sender,left(body,700) AS text FROM mail_cache WHERE user_id=$1 AND in_inbox=true ORDER BY received_at DESC LIMIT 10",
-        [user.id],
-      ),
-    ]);
-    await rateLimit(user.id);
-    const analysis = await analyzeText(
-      JSON.stringify({
-        date: input.date,
-        event,
-        events,
-        tasks: tasks.rows,
-        mails: mails.rows,
-      }),
-      "note",
-      formatInTimeZone(new Date(), timeZone, "yyyy-MM-dd"),
-      event
-        ? "Maak een korte voorbereiding op de geselecteerde afspraak: relevante onderwerpen uit de aangeleverde context, openstaande acties en maximaal drie vragen. Zeg expliciet wanneer context ontbreekt. Maak geen nieuwe taken; tasks moet leeg zijn."
-        : "Maak een kort ochtendoverzicht voor de gekozen dag: urgente taken, afspraken en een realistische volgorde van aandacht. Baseer je alleen op deze context en geef geen garantie dat alles past. Maak geen nieuwe taken; tasks moet leeg zijn.",
-    );
-    return response({ text: analysis.summary });
+      throw new PublicError("Deze afspraak is niet gevonden.", 404);
+    const tasks = (
+      await database().query(
+        "SELECT title,duration,deadline::text FROM tasks WHERE user_id=$1 AND done=false AND work_date=$2 ORDER BY deadline LIMIT 30",
+        [user.id, input.date],
+      )
+    ).rows;
+    const total = tasks.reduce((sum, t) => sum + Number(t.duration), 0);
+    const text = event
+      ? `${event.summary || "Afspraak"}\n\nControleer voor het gesprek je openstaande taken:\n${tasks.map((t) => "• " + t.title).join("\n") || "Geen openstaande taken op deze dag."}\n\nDit overzicht gebruikt vaste regels; er is geen AI-analyse uitgevoerd.`
+      : `${input.date}\n${events.length} afspraken in je agenda.\n${tasks.length} openstaande taken, samen ${total} minuten geschat werk.\n\n${tasks.map((t) => `• ${t.title} (${t.duration} min, deadline ${t.deadline})`).join("\n") || "Nog geen taken voor deze dag."}\n\nControleer je agenda voordat je plant. Er is geen AI gebruikt.`;
+    return response({ text, source: "rules" });
   } catch (error) {
     return routeError(error);
   }

@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, Square, Upload } from "lucide-react";
 export default function VoiceNote({
   disabled,
+  canTranscribe = false,
   onTranscript,
   onError,
 }: {
   disabled: boolean;
+  canTranscribe?: boolean;
   onTranscript: (text: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -133,59 +135,65 @@ export default function VoiceNote({
   return (
     <section className="voice-panel">
       <div>
-        <span className="overline">SPRAAKNOTITIE OF EIGEN OPNAME</span>
+        <span className="overline">
+          {canTranscribe ? "SPRAAKNOTITIE OF EIGEN OPNAME" : "GESPREKSNOTITIE"}
+        </span>
         <h2>Wat is er afgesproken?</h2>
         <p>
-          Neem maximaal 90 seconden op, upload audio van maximaal 4 MB, of typ
-          je notitie. Alleen na jouw opdracht wordt de inhoud naar OpenAI
-          gestuurd. Audio wordt niet door PlannerPal opgeslagen.
+          {canTranscribe
+            ? "Neem maximaal 90 seconden op, voeg audio toe of typ je notitie. Transcriptie gebruikt de ingestelde AI-dienst."
+            : "Typ je notitie. Regelvoorstellen werken zonder AI-aanroepen. Audio-transcriptie staat uit om kosten te voorkomen."}
         </p>
       </div>
-      <div className="voice-controls">
-        <button
-          className={recording ? "recording-button" : "primary"}
-          disabled={!recording && (disabled || working || starting)}
-          onClick={() => (recording ? recorder.current?.stop() : void start())}
-        >
-          {recording ? (
-            <>
-              <Square size={15} />
-              Stop opname · {seconds}s
-            </>
-          ) : (
-            <>
-              <Mic size={16} />
-              Notitie opnemen
-            </>
-          )}
-        </button>
-        <label className="secondary upload-button">
-          <Upload size={15} />
-          Opname toevoegen
-          <input
-            type="file"
-            accept="audio/*"
-            disabled={disabled || working || recording}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                setBlob(file);
-                setText("");
-              }
-              e.target.value = "";
-            }}
-          />
-        </label>
-        {blob && (
+      {canTranscribe && (
+        <div className="voice-controls">
           <button
-            className="secondary"
-            disabled={disabled || working || recording}
-            onClick={() => void transcribe(blob)}
+            className={recording ? "recording-button" : "primary"}
+            disabled={!recording && (disabled || working || starting)}
+            onClick={() =>
+              recording ? recorder.current?.stop() : void start()
+            }
           >
-            {working ? "Uitschrijven…" : "Opname uitschrijven"}
+            {recording ? (
+              <>
+                <Square size={15} />
+                Stop opname · {seconds}s
+              </>
+            ) : (
+              <>
+                <Mic size={16} />
+                Notitie opnemen
+              </>
+            )}
           </button>
-        )}
-      </div>
+          <label className="secondary upload-button">
+            <Upload size={15} />
+            Opname toevoegen
+            <input
+              type="file"
+              accept="audio/*"
+              disabled={disabled || working || recording}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  setBlob(file);
+                  setText("");
+                }
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {blob && (
+            <button
+              className="secondary"
+              disabled={disabled || working || recording}
+              onClick={() => void transcribe(blob)}
+            >
+              {working ? "Uitschrijven…" : "Opname uitschrijven"}
+            </button>
+          )}
+        </div>
+      )}
       <label>
         Jouw gespreksnotitie
         <textarea
@@ -196,8 +204,9 @@ export default function VoiceNote({
         />
       </label>
       <p className="form-hint">
-        Controleer de transcriptie voordat je acties laat voorstellen. Gebruik
-        alleen opnames die je mag delen. Dit neemt geen telefoongesprekken op.
+        {canTranscribe
+          ? "Controleer de transcriptie voordat je acties laat voorstellen. Gebruik alleen opnames die je mag delen. Dit neemt geen telefoongesprekken op."
+          : "Zet iedere mogelijke actie op een eigen regel. Controleer titel, duur en deadline voordat je een taak bewaart."}
       </p>
       <button
         className="primary"

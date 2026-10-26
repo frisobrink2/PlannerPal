@@ -11,11 +11,14 @@
     "db:migrate": "node scripts/migrate.mjs",
     "test:server": "tsx --test tests/server.test.ts",
     "test:ui": "tsx --test tests/assistant-ui.test.tsx",
-    "test:connected": "node tests/connected-smoke.cjs"
+    "test:connected": "node tests/connected-smoke.cjs",
+    "prebuild": "node scripts/prepare-build.mjs",
+    "test:providers": "tsx --test tests/providers.test.ts"
   },
   "dependencies": {
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",
+    "jose": "^6.2.13",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "pg": "^8.23.1",

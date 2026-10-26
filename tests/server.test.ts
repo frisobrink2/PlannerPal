@@ -37,12 +37,14 @@ const user: Account = {
   email: "owner@example.com",
   name: "Owner",
   google_tokens: "not-used-in-tests",
+  provider: "google",
 };
 before(async () => {
   process.env.SESSION_SECRET = "fixture-key-for-tests-only-32-characters";
   process.env.APP_URL = "https://planner-pal.vercel.app";
   await pg.exec(await readFile("db/001-assistant.sql", "utf8"));
   await pg.exec(await readFile("db/001-assistant.sql", "utf8"));
+  await pg.exec(await readFile("db/002-multiple-providers.sql", "utf8"));
 });
 beforeEach(async () => {
   await db.query("DELETE FROM users");
@@ -378,6 +380,10 @@ test("AI output cannot supply recipients, commands or unvalidated task fields", 
 });
 test("AI request contains no tools, disables stored responses and validates provider output", async () => {
   const original = globalThis.fetch;
+  const paidBefore = process.env.ENABLE_PAID_AI,
+    keyBefore = process.env.PLANNERPAL_AI_KEY;
+  process.env.ENABLE_PAID_AI = "true";
+  process.env.PLANNERPAL_AI_KEY = "fixture-not-a-real-key";
   process.env.OPENAI_API_KEY = "fixture-not-a-real-key";
   let calls = 0;
   globalThis.fetch = async (input, init) => {
@@ -420,6 +426,10 @@ test("AI request contains no tools, disables stored responses and validates prov
   } finally {
     globalThis.fetch = original;
     delete process.env.OPENAI_API_KEY;
+    if (paidBefore === undefined) delete process.env.ENABLE_PAID_AI;
+    else process.env.ENABLE_PAID_AI = paidBefore;
+    if (keyBefore === undefined) delete process.env.PLANNERPAL_AI_KEY;
+    else process.env.PLANNERPAL_AI_KEY = keyBefore;
   }
 });
 test("account deletion cascades through messages, drafts, tasks and audit entries", async () => {

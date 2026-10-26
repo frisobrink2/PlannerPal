@@ -20,17 +20,24 @@ const assert = require("node:assert/strict");
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(base + "/assistant");
     await page
-      .getByText("De verbinding moet nog worden ingesteld.", { exact: true })
+      .getByText("Inloggen geeft ons nog geen toegang tot je mail of agenda.")
       .waitFor();
     assert(
-      await page
-        .getByRole("link", { name: "Installatiestappen bekijken" })
-        .isVisible(),
+      await page.getByRole("link", { name: "Voor de beheerder" }).isVisible(),
     );
     assert.equal(
-      await page.getByRole("link", { name: "Verbinden met Google" }).count(),
-      0,
+      await page
+        .getByRole("button", { name: /Doorgaan met Google/ })
+        .isDisabled(),
+      true,
     );
+    assert.equal(
+      await page
+        .getByRole("button", { name: /Doorgaan met Microsoft/ })
+        .isDisabled(),
+      true,
+    );
+    assert(!(await page.locator("body").innerText()).includes("DATABASE_URL"));
     assert(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -43,7 +50,7 @@ const assert = require("node:assert/strict");
       "yes",
     );
     await page.screenshot({
-      path: "/tmp/plannerpal-connect-iphone.png",
+      path: "/tmp/plannerpal-signin-iphone.png",
       fullPage: true,
     });
     const manifest = await (
@@ -72,19 +79,25 @@ const assert = require("node:assert/strict");
       ).status(),
       401,
     );
-    const callback = await page.request.get(
-      base + "/api/auth/callback?code=invalid&state=invalid",
-      { maxRedirects: 0 },
-    );
-    assert.equal(callback.status(), 307);
-    assert(callback.headers().location.endsWith("/assistant?auth=failed"));
+    for (const path of ["/api/auth/callback", "/api/auth/callback/microsoft"]) {
+      const callback = await page.request.get(
+        base + path + "?code=invalid&state=invalid",
+        { maxRedirects: 0 },
+      );
+      assert.equal(callback.status(), 307);
+      assert(callback.headers().location.endsWith("/assistant?auth=failed"));
+    }
+    await page.goto(base + "/admin");
+    await page
+      .getByRole("heading", { name: "Installatie voor de beheerder" })
+      .waitFor();
     await page.goto(base + "/privacy");
     await page
-      .getByRole("heading", { name: "Je gegevens in PlannerPal" })
+      .getByRole("heading", { name: "Jouw gegevens in PlannerPal" })
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: iPhone-aansluitpagina, privacy, PWA-manifest/iconen, geen acties zonder login, afwijzen van vreemde Origin en ongeldige OAuth-callback.",
+      "PASS: iPhone-aanmeldpagina, geen technische gebruikersvelden, gescheiden beheer, privacy, PWA, geen acties zonder login en beide ongeldige OAuth-callbacks.",
     );
   } finally {
     await browser.close();

@@ -1,20 +1,24 @@
-export const requiredSettings = [
-  "DATABASE_URL",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "SESSION_SECRET",
-  "ALLOWED_GOOGLE_EMAIL",
-] as const;
+import { providerConfigured } from "./provider-config";
+import { PublicError } from "./http-error";
+export const requiredSettings = ["DATABASE_URL", "SESSION_SECRET"] as const;
+export function paidAiEnabled() {
+  return process.env.ENABLE_PAID_AI === "true";
+}
 export function configuration() {
-  const missing = requiredSettings.filter((key) => !process.env[key]);
+  const missing: string[] = requiredSettings.filter((key) => !process.env[key]);
   if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32)
     missing.push("SESSION_SECRET");
+  const providers = {
+    google: providerConfigured("google"),
+    microsoft: providerConfigured("microsoft"),
+  };
   return {
     ready: missing.length === 0,
     missing: [...new Set(missing)],
-    aiReady: Boolean(
-      process.env.PLANNERPAL_AI_KEY || process.env.OPENAI_API_KEY,
-    ),
+    providers,
+    aiReady:
+      paidAiEnabled() &&
+      Boolean(process.env.PLANNERPAL_AI_KEY || process.env.OPENAI_API_KEY),
     appUrl: appUrl(),
   };
 }
@@ -42,7 +46,11 @@ export function required(name: string) {
   return value;
 }
 export const timeZone = "Europe/Amsterdam";
-
 export function aiKey() {
+  if (!paidAiEnabled())
+    throw new PublicError(
+      "Betaalde AI staat uit. Je kunt gratis regels, standaardantwoorden en handmatige taken gebruiken.",
+      503,
+    );
   return process.env.PLANNERPAL_AI_KEY || required("OPENAI_API_KEY");
 }

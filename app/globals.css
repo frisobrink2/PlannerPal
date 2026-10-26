@@ -2149,3 +2149,133 @@ select {
   flex-wrap: wrap;
   row-gap: 10px;
 }
+.provider-buttons {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 27px 0;
+}
+.provider-button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #d6ddd2;
+  border-radius: 7px;
+  min-height: 58px;
+  padding: 15px 19px;
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 245px;
+  text-align: left;
+}
+.provider-button > span:last-child {
+  margin-left: auto;
+}
+.provider-button small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.provider-symbol {
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+}
+.provider-symbol.google {
+  font-weight: 700;
+  font-size: 24px;
+  color: #4285f4;
+}
+.provider-symbol.microsoft {
+  display: grid;
+  grid-template-columns: repeat(2, 10px);
+  grid-template-rows: repeat(2, 10px);
+  gap: 2px;
+}
+.provider-symbol.microsoft i {
+  background: #f25022;
+}
+.provider-symbol.microsoft i:nth-child(2) {
+  background: #7fba00;
+}
+.provider-symbol.microsoft i:nth-child(3) {
+  background: #00a4ef;
+}
+.provider-symbol.microsoft i:nth-child(4) {
+  background: #ffb900;
+}
+.signup-explainer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #697c5c;
+  font-size: 12px;
+  margin: 17px 0;
+  line-height: 1.7;
+}
+.connect-next {
+  background: #f0f4eb;
+  border: 1px solid #d7e1cd;
+  border-radius: 6px;
+  padding: 25px;
+  margin-bottom: 25px;
+}
+.connect-next h2 {
+  font-size: 22px;
+  margin: 12px 0;
+}
+.connect-next > p {
+  font-size: 13px;
+  line-height: 1.9;
+  max-width: 750px;
+  color: #748766;
+}
+.connect-next .provider-buttons {
+  margin: 20px 0;
+}
+.permission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin: 22px 0;
+}
+.permission-list span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.permission-list .secondary {
+  align-self: flex-start;
+}
+@media (max-width: 700px) {
+  .provider-buttons {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .provider-button {
+    width: 100%;
+    min-width: 0;
+    font-size: 13px;
+  }
+  .connect-next {
+    padding: 20px;
+  }
+  .connect-next h2 {
+    font-size: 21px;
+  }
+  .connected-app .connect-landing h1 {
+    font-size: 34px;
+  }
+}
+@media (max-width: 700px) {
+  .connected-app .top:not(:has(nav)) {
+    min-height: 74px;
+    height: 74px;
+    padding-bottom: 14px;
+  }
+}

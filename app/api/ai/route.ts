@@ -5,7 +5,7 @@ import { requireUser } from "../../../server/auth";
 import { analyzeText, rateLimit } from "../../../server/ai";
 import { database } from "../../../server/db";
 import { saveDraft } from "../../../server/mail";
-import { timeZone } from "../../../server/config";
+import { timeZone, aiKey } from "../../../server/config";
 import {
   sameOrigin,
   jsonBody,
@@ -25,11 +25,7 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const user = await requireUser();
-    if (!process.env.PLANNERPAL_AI_KEY && !process.env.OPENAI_API_KEY)
-      throw new PublicError(
-        "Stel eerst de AI-sleutel in bij de serverinstellingen.",
-        503,
-      );
+    aiKey();
     const data = input.parse(await jsonBody(request));
     const db = database();
     let text = "";

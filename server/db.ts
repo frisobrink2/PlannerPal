@@ -8,7 +8,13 @@ export type Queryable = {
 };
 let pool: Pool | undefined;
 export function database() {
-  const url = new URL(required("DATABASE_URL"));
+  let url: URL;
+  try {
+    url = new URL(required("DATABASE_URL"));
+    if (!["postgres:", "postgresql:"].includes(url.protocol)) throw new Error();
+  } catch {
+    throw new Error("DATABASE_URL heeft geen geldige PostgreSQL-structuur.");
+  }
   if (
     process.env.NODE_ENV === "production" ||
     !["localhost", "127.0.0.1"].includes(url.hostname)

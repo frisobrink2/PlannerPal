@@ -7,6 +7,10 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const user = await requireUser();
+    if (user.provider === "microsoft") {
+      const { microsoftFollowups } = await import("../../../server/microsoft");
+      return response({ followups: await microsoftFollowups(user) });
+    }
     const list = await google<{
       messages?: { id: string; threadId: string }[];
     }>(
@@ -46,7 +50,11 @@ export async function POST(request: Request) {
         } catch {
           continue;
         }
-        if (sender.toLowerCase() !== user.email.toLowerCase()) continue;
+        if (
+          sender.toLowerCase() !==
+          (user.connection_email || user.email).toLowerCase()
+        )
+          continue;
         followups.push({
           id: last.id,
           subject: header("subject") || "(zonder onderwerp)",
