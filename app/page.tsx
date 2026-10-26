@@ -1,23 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  ArrowUpRight,
-  CalendarDays,
+  ArrowLeft,
+  ArrowRight,
   Check,
-  CheckCheck,
+  ChevronDown,
   ChevronRight,
   Clock3,
-  Inbox,
-  ListTodo,
   Mail as MailIcon,
+  MoreHorizontal,
+  Plus,
   RotateCcw,
-  Send,
-  Sparkles,
+  Search,
   X,
 } from "lucide-react";
 import {
-  Draft,
-  fixed,
+  Block,
+  demoDay,
   initialState,
   Mail,
   mails,
@@ -26,498 +25,651 @@ import {
   Task,
   time,
 } from "./data";
-const key = "plannerpal-demo-v1";
-const tabs = ["Inbox", "Taken", "Dagplanning", "Antwoordconcepten"] as const;
-type Tab = (typeof tabs)[number];
-function validState(value: unknown): value is State {
-  if (!value || typeof value !== "object") return false;
-  const s = value as State;
-  return (
-    Array.isArray(s.tasks) &&
-    s.tasks.every(
-      (t) =>
-        t &&
-        Number.isFinite(t.id) &&
-        mails.some((m) => m.id === t.mailId) &&
-        typeof t.title === "string" &&
-        Number.isFinite(t.duration) &&
-        t.duration >= 5 &&
-        t.duration <= 480 &&
-        ["Hoog", "Normaal", "Laag"].includes(t.priority) &&
-        typeof t.deadline === "string" &&
-        typeof t.done === "boolean" &&
-        (t.start === undefined || Number.isFinite(t.start)),
-    ) &&
-    Array.isArray(s.drafts) &&
-    s.drafts.every(
-      (d) =>
-        d &&
-        mails.some((m) => m.id === d.mailId) &&
-        typeof d.text === "string" &&
-        typeof d.approved === "boolean",
-    ) &&
-    Array.isArray(s.read) &&
-    s.read.every(Number.isFinite)
-  );
-}
+import {
+  canFit,
+  dateLabel,
+  minutesLabel,
+  restore,
+  shiftDay,
+  slotsFor,
+  storageKey,
+  validDate,
+} from "./planning";
+import { Dialog } from "./ui";
+
+type Editor =
+  | { kind: "task"; item: Task; fresh: boolean }
+  | { kind: "block"; item: Block; fresh: boolean };
+type Planning = { task: Task; date: string; start: string };
 export default function Home() {
   const [state, setState] = useState<State>(initialState);
   const [ready, setReady] = useState(false);
   const [storageError, setStorageError] = useState(false);
-  const [tab, setTab] = useState<Tab>("Inbox");
-  const [selected, setSelected] = useState<Mail | null>(null);
-  const [proposal, setProposal] = useState<Task | null>(null);
-  const [planning, setPlanning] = useState<Task | null>(null);
-  const [slot, setSlot] = useState("");
-  const [notice, setNotice] = useState("");
-  const [filter, setFilter] = useState("Alle mails");
-  const [query, setQuery] = useState("");
+  const [date, setDate] = useState(demoDay);
+  const [view, setView] = useState<"work" | "drafts">("work");
+  const [mobile, setMobile] = useState("taken");
+  const [search, setSearch] = useState("");
+  const [mailFilter, setMailFilter] = useState("alle");
+  const [taskFilter, setTaskFilter] = useState("dag");
+  const [mail, setMail] = useState<Mail | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [plan, setPlan] = useState<Planning | null>(null);
   const [reset, setReset] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [undo, setUndo] = useState<State | null>(null);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (validState(parsed)) setState(parsed);
+        const saved = restore(JSON.parse(raw));
+        if (saved) setState(saved);
         else
-          setNotice(
-            "Opgeslagen data kon niet worden gelezen. De voorbeelddata is geladen.",
+          setMessage(
+            "Opgeslagen gegevens zijn ongeldig. De voorbeelddata is geladen.",
           );
       }
     } catch {
       setStorageError(true);
+      setMessage("Opgeslagen gegevens konden niet worden geladen.");
     }
     setReady(true);
   }, []);
   useEffect(() => {
     if (ready)
       try {
-        localStorage.setItem(key, JSON.stringify(state));
+        localStorage.setItem(storageKey, JSON.stringify(state));
         setStorageError(false);
       } catch {
         setStorageError(true);
       }
   }, [state, ready]);
-  const modalOpen = Boolean(selected || planning || reset);
-  useEffect(() => {
-    if (!modalOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const dialog = document.querySelector<HTMLElement>(
-      '[role="dialog"], [role="alertdialog"]',
-    );
-    const oldOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSelected(null);
-        setPlanning(null);
-        setReset(false);
-      }
-      if (event.key === "Tab" && dialog) {
-        const nodes = Array.from(
-          dialog.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), input, select, textarea, [tabindex="0"]',
-          ),
-        );
-        const first = nodes[0],
-          last = nodes[nodes.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = oldOverflow;
-      document.removeEventListener("keydown", onKey);
-      previous?.focus();
-    };
-  }, [modalOpen]);
-  const update = (patch: Partial<State>) =>
-    setState((s) => ({ ...s, ...patch }));
-  const openMail = (m: Mail) => {
-    setSelected(m);
-    setProposal(null);
-    setState((s) => ({ ...s, read: [...new Set([...s.read, m.id])] }));
-  };
-  const active = state.tasks.filter((t) => !t.done);
-  const occupied = [
-    ...fixed,
-    ...active
-      .filter((t) => t.start !== undefined)
-      .map((t) => ({
-        start: t.start!,
-        duration: t.duration,
-        title: t.title,
-        type: "Taak",
-      })),
-  ];
-  const freeSlots = (t: Task) =>
-    Array.from({ length: 32 }, (_, i) => 540 + i * 15).filter(
-      (s) =>
-        s + t.duration <= 1020 &&
-        !occupied.some(
-          (b) => s < b.start + b.duration && s + t.duration > b.start,
-        ),
-    );
-  const scheduled = active.filter((t) => t.start !== undefined);
-  const plannedMinutes = scheduled.reduce((a, t) => a + t.duration, 0);
-  const freeMinutes =
-    480 - fixed.reduce((a, b) => a + b.duration, 0) - plannedMinutes;
-  const accepted = (id: number) => state.tasks.some((t) => t.mailId === id);
-  function accept() {
-    if (
-      !proposal ||
-      !proposal.title.trim() ||
-      !proposal.deadline ||
-      proposal.duration < 5 ||
-      proposal.duration > 480
-    )
-      return;
-    setState((s) => ({
-      ...s,
-      tasks: [...s.tasks, { ...proposal, title: proposal.title.trim() }],
-      drafts: s.drafts.some((d) => d.mailId === proposal.mailId)
-        ? s.drafts
-        : [
-            ...s.drafts,
-            { mailId: proposal.mailId, text: selected!.reply, approved: false },
-          ],
-    }));
-    setProposal(null);
-    setNotice("Taak toegevoegd. Je kunt hem nu inplannen.");
+  function commit(next: State, text: string) {
+    setUndo(state);
+    setState(next);
+    setMessage(text);
   }
-  const shown = mails.filter(
+  function openMail(m: Mail) {
+    setMail(m);
+    setState((s) => ({ ...s, read: [...new Set([...s.read, m.id])] }));
+    setUndo(null);
+  }
+  function edit(value: Editor) {
+    setError("");
+    setEditor(value);
+  }
+  function patchEditor(
+    patch: Partial<{ title: string; date: string; duration: number }>,
+  ) {
+    setEditor((current) =>
+      current === null
+        ? null
+        : current.kind === "task"
+          ? { ...current, item: { ...current.item, ...patch } }
+          : { ...current, item: { ...current.item, ...patch } },
+    );
+  }
+  function newTask() {
+    edit({
+      kind: "task",
+      fresh: true,
+      item: {
+        id: Date.now(),
+        mailId: null,
+        title: "",
+        duration: 30,
+        date,
+        deadline: date,
+        priority: "Normaal",
+        done: false,
+      },
+    });
+  }
+  function proposal(m: Mail) {
+    setMail(null);
+    edit({
+      kind: "task",
+      fresh: true,
+      item: {
+        id: Date.now(),
+        mailId: m.id,
+        title: m.task,
+        duration: m.duration,
+        date,
+        deadline: m.deadline,
+        priority: m.priority,
+        done: false,
+      },
+    });
+  }
+  const active = state.tasks.filter((t) => !t.done);
+  const dayTasks = active.filter((t) => t.date === date);
+  const dayBlocks = state.blocks.filter((b) => b.date === date);
+  const booked = dayTasks.filter((t) => t.start !== undefined);
+  const unplanned = dayTasks.filter((t) => t.start === undefined);
+  const blockedMinutes = dayBlocks.reduce((a, b) => a + b.duration, 0);
+  const plannedMinutes = booked.reduce((a, t) => a + t.duration, 0);
+  const free = 480 - blockedMinutes - plannedMinutes;
+  const remaining = unplanned.reduce((a, t) => a + t.duration, 0);
+  const taskList = state.tasks
+    .filter((t) =>
+      taskFilter === "alle"
+        ? !t.done
+        : taskFilter === "afgerond"
+          ? t.done
+          : !t.done && t.date === date,
+    )
+    .sort(
+      (a, b) =>
+        Number(a.start !== undefined) - Number(b.start !== undefined) ||
+        ["Hoog", "Normaal", "Laag"].indexOf(a.priority) -
+          ["Hoog", "Normaal", "Laag"].indexOf(b.priority),
+    );
+  const mailList = mails.filter(
     (m) =>
-      (filter !== "Aandacht nodig" || !accepted(m.id)) &&
-      (filter !== "Ongelezen" || !state.read.includes(m.id)) &&
+      (mailFilter !== "open" || !state.tasks.some((t) => t.mailId === m.id)) &&
       `${m.name} ${m.subject} ${m.body}`
         .toLowerCase()
-        .includes(query.toLowerCase()),
+        .includes(search.toLowerCase()),
   );
+  function toggleTask(t: Task) {
+    commit(
+      {
+        ...state,
+        tasks: state.tasks.map((x) =>
+          x.id === t.id ? { ...x, done: !x.done, start: undefined } : x,
+        ),
+      },
+      t.done
+        ? "Taak heropend. Plan hem opnieuw in."
+        : "Taak afgerond. De geplande tijd is vrij.",
+    );
+  }
+  function saveEditor() {
+    if (!editor) return;
+    const item = editor.item;
+    if (!item.title.trim()) {
+      setError("Geef een titel op.");
+      return;
+    }
+    if (
+      !validDate(item.date) ||
+      !Number.isInteger(item.duration) ||
+      item.duration < 5 ||
+      item.duration > 480
+    ) {
+      setError("Kies een geldige dag en een duur van 5 tot 480 minuten.");
+      return;
+    }
+    if (editor.kind === "task" && !validDate(editor.item.deadline)) {
+      setError("Kies een geldige deadline.");
+      return;
+    }
+    if (
+      item.start !== undefined &&
+      !canFit(state, item.date, item.start, item.duration, {
+        kind: editor.kind,
+        id: item.id,
+      })
+    ) {
+      setError(
+        "Dit tijdstip overlapt een taak, afspraak of pauze, of valt buiten 09:00–17:00. Kies een ander tijdstip of sla de taak ongepland op.",
+      );
+      return;
+    }
+    if (editor.kind === "task") {
+      const task = { ...editor.item, title: editor.item.title.trim() };
+      if (
+        editor.fresh &&
+        task.mailId !== null &&
+        state.tasks.some((t) => t.mailId === task.mailId)
+      ) {
+        setError("Er bestaat al een taak voor deze mail.");
+        return;
+      }
+      const drafts =
+        task.mailId !== null &&
+        !state.drafts.some((d) => d.mailId === task.mailId)
+          ? [
+              ...state.drafts,
+              {
+                mailId: task.mailId,
+                text: mails.find((m) => m.id === task.mailId)!.reply,
+                approved: false,
+              },
+            ]
+          : state.drafts;
+      commit(
+        {
+          ...state,
+          tasks: editor.fresh
+            ? [...state.tasks, task]
+            : state.tasks.map((t) => (t.id === task.id ? task : t)),
+          drafts,
+        },
+        editor.fresh ? "Taak toegevoegd." : "Taak bijgewerkt.",
+      );
+    } else {
+      const block = { ...editor.item, title: editor.item.title.trim() };
+      commit(
+        {
+          ...state,
+          blocks: editor.fresh
+            ? [...state.blocks, block]
+            : state.blocks.map((b) => (b.id === block.id ? block : b)),
+        },
+        editor.fresh ? "Agendablok toegevoegd." : "Agendablok bijgewerkt.",
+      );
+    }
+    setDate(item.date);
+    setEditor(null);
+    setMobile("taken");
+  }
+  function savePlan() {
+    if (!plan || plan.start === "") return;
+    const start = Number(plan.start);
+    const current = state.tasks.find((t) => t.id === plan.task.id);
+    if (
+      !current ||
+      !canFit(state, plan.date, start, current.duration, {
+        kind: "task",
+        id: current.id,
+      })
+    ) {
+      setError("Dit moment is niet meer beschikbaar. Kies een ander tijdstip.");
+      return;
+    }
+    commit(
+      {
+        ...state,
+        tasks: state.tasks.map((t) =>
+          t.id === current.id ? { ...t, date: plan.date, start } : t,
+        ),
+      },
+      "Taak ingepland.",
+    );
+    setDate(plan.date);
+    setPlan(null);
+    setMobile("planning");
+  }
+  function openPlan(task: Task) {
+    setError("");
+    setPlan({
+      task,
+      date: task.date,
+      start: task.start === undefined ? "" : String(task.start),
+    });
+  }
+  const events = [
+    ...dayBlocks.map((b) => ({ ...b, kind: "block" as const })),
+    ...booked.map((t) => ({
+      ...t,
+      start: t.start!,
+      type: "Taak" as const,
+      kind: "task" as const,
+    })),
+  ].sort((a, b) => a.start - b.start);
+  const mailTask = mail
+    ? state.tasks.find((t) => t.mailId === mail.id)
+    : undefined;
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className="app">
+      <header className="top">
         <a
-          className="brand"
+          className="wordmark"
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setTab("Inbox");
+            setView("work");
           }}
         >
-          <span className="brand-icon">
-            <CheckCheck size={24} />
-          </span>
-          plannerpal<span className="brand-dot">.</span>
+          planner<span>pal</span>
+          <span className="brand-mark">/</span>
         </a>
-        <div className="workspace-label">PERSOONLIJKE WERKPLEK</div>
         <nav aria-label="Hoofdnavigatie">
-          {tabs.map((t, i) => {
-            const Icon = [Inbox, ListTodo, CalendarDays, Send][i];
-            return (
-              <button
-                key={t}
-                className={`nav-item ${tab === t ? "active" : ""}`}
-                onClick={() => setTab(t)}
-              >
-                <Icon size={19} />
-                <span>{t}</span>
-                {i === 0 && (
-                  <b>
-                    {mails.filter((m) => !state.read.includes(m.id)).length}
-                  </b>
-                )}
-                {i === 1 && <span className="nav-count">{active.length}</span>}
-              </button>
-            );
-          })}
+          <button
+            className={view === "work" ? "current" : ""}
+            onClick={() => setView("work")}
+          >
+            Werkoverzicht
+          </button>
+          <button
+            className={view === "drafts" ? "current" : ""}
+            onClick={() => setView("drafts")}
+          >
+            Antwoordconcepten{" "}
+            <span>{state.drafts.filter((d) => !d.approved).length}</span>
+          </button>
         </nav>
-        <div className="sidebar-bottom">
-          <div className="calm-card">
-            <span className="little-spark">
-              <Sparkles size={19} />
-            </span>
-            <strong>Meer rust. Meer overzicht.</strong>
+        <div className="top-actions">
+          <span className="demo-badge">DEMO</span>
+          <button
+            className="icon-button"
+            title="Voorbeelddata herstellen"
+            aria-label="Voorbeelddata herstellen"
+            onClick={() => setReset(true)}
+          >
+            <RotateCcw size={16} />
+          </button>
+          <span className="user-avatar">J</span>
+        </div>
+      </header>
+      <div className="demo-note">
+        Voorbeeldwerkplek <span>·</span> Mails, voorstellen en antwoorden zijn
+        fictief. Er wordt niets verstuurd.
+      </div>
+      <main>
+        <div className="heading">
+          <div>
+            <span className="overline">MIJN WERKDAG</span>
+            <h1>
+              {view === "work"
+                ? "Wat pak je vandaag op?"
+                : "Antwoorden die nog van jou moeten worden."}
+            </h1>
             <p>
-              Jij bepaalt wat aandacht krijgt.
-              <br />
-              PlannerPal helpt je op weg.
+              {view === "work"
+                ? "Maak van een mail een taak. Geef het werk daarna een plek in je dag."
+                : "Controleer de inhoud, pas de tekst aan en keur je concept goed."}
             </p>
           </div>
-          <button className="reset-button" onClick={() => setReset(true)}>
-            <RotateCcw size={16} />
-            Voorbeelddata herstellen
+          <button className="primary new-task" onClick={newTask}>
+            <Plus size={16} />
+            Nieuwe taak
           </button>
-          <div className="profile">
-            <span className="avatar profile-avatar">JD</span>
-            <div>
-              <strong>Jouw werkplek</strong>
-              <small>Zelfstandig professional</small>
-            </div>
-            <span className="demo-tag">DEMO</span>
-          </div>
         </div>
-      </aside>
-      <main>
-        <div className="topbar">
-          <span>
-            <span className="status-dot" /> Jouw persoonlijke overzicht
-          </span>
-          <span className="date">
-            <CalendarDays size={15} /> Maandag 26 oktober 2026
-          </span>
-        </div>
-        <div className="content">
-          <div className="demo-banner">
-            <Sparkles size={16} />
-            <span>
-              <strong>Even kennismaken.</strong> Dit is een demo met
-              voorbeelddata. Er worden geen echte mails verstuurd.
-            </span>
-            <span className="demo-pill">DEMO</span>
+        {storageError && (
+          <div className="alert" role="alert">
+            Opslaan in deze browser lukt niet. Wijzigingen verdwijnen mogelijk
+            na herladen.
           </div>
-          <header className="page-header">
-            <div>
-              <div className="eyebrow">EEN NIEUWE WEEK, EEN HELDER BEGIN</div>
-              <h1>
-                {tab === "Inbox"
-                  ? "Goedemorgen, aan de slag."
-                  : tab === "Taken"
-                    ? "Van aandacht naar actie."
-                    : tab === "Dagplanning"
-                      ? "Een dag die bij je past."
-                      : "Een goed antwoord begint hier."}
-              </h1>
-              <p>
-                {tab === "Inbox"
-                  ? "Alles wat je aandacht vraagt, op één rustige plek."
-                  : tab === "Taken"
-                    ? "Kleine stappen, helder overzicht. Jij kiest wat eerst komt."
-                    : tab === "Dagplanning"
-                      ? "Geef je werk een plek. Houd ruimte voor jezelf."
-                      : "Neem de tijd om je woorden te kiezen. Jij houdt de regie."}
-              </p>
-            </div>
-            <div className="header-illustration" aria-hidden="true">
-              <div className="illustration-paper">
-                <span />
-                <span />
-                <span />
-                <b>
-                  <Check size={17} />
-                </b>
-              </div>
-              <div className="illustration-circle" />
-            </div>
-          </header>
-          <section className="stats" aria-label="Je overzicht">
+        )}
+        {message && (
+          <div className="toast" role="status">
+            <span>{message}</span>
+            {undo && (
+              <button
+                onClick={() => {
+                  setState(undo);
+                  setUndo(null);
+                  setMessage("Laatste actie ongedaan gemaakt.");
+                }}
+              >
+                Ongedaan maken
+              </button>
+            )}
             <button
+              className="icon-button"
+              aria-label="Melding sluiten"
               onClick={() => {
-                setTab("Inbox");
-                setFilter("Aandacht nodig");
+                setMessage("");
+                setUndo(null);
               }}
             >
-              <span className="stat-icon violet">
-                <Inbox size={21} />
-              </span>
-              <div>
-                <span>Mails om te bekijken</span>
-                <strong>
-                  {mails.filter((m) => !accepted(m.id)).length}
-                  <small>vragen je aandacht</small>
-                </strong>
-              </div>
-              <ArrowUpRight size={16} />
+              <X size={14} />
             </button>
-            <button onClick={() => setTab("Taken")}>
-              <span className="stat-icon amber">
-                <ListTodo size={21} />
-              </span>
-              <div>
-                <span>Openstaande taken</span>
-                <strong>
-                  {active.length}
-                  <small>stap voor stap</small>
-                </strong>
-              </div>
-              <ArrowUpRight size={16} />
-            </button>
-            <button onClick={() => setTab("Dagplanning")}>
-              <span className="stat-icon green">
-                <Clock3 size={21} />
-              </span>
-              <div>
-                <span>Ruimte in je dag</span>
-                <strong>
-                  {Math.floor(freeMinutes / 60)}u{" "}
-                  {freeMinutes % 60 > 0 ? `${freeMinutes % 60}m` : ""}
-                  <small>vrij om in te plannen</small>
-                </strong>
-              </div>
-              <ArrowUpRight size={16} />
-            </button>
-          </section>
-          {storageError && (
-            <div className="warning" role="alert">
-              Lokale opslag is niet beschikbaar. Wijzigingen blijven alleen
-              tijdens deze sessie bewaard.
-            </div>
-          )}
-          {notice && (
-            <div className="notice" role="status">
-              <Check size={16} />
-              {notice}
-              <button
-                aria-label="Melding sluiten"
-                onClick={() => setNotice("")}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          <div className="main-grid">
-            <section className="panel primary-panel">
-              <div className="panel-title">
-                <div>
-                  <h2>
-                    {tab === "Inbox"
-                      ? "Je inbox"
-                      : tab === "Taken"
-                        ? "Je taken"
-                        : tab === "Dagplanning"
-                          ? "Je dagplanning"
-                          : "Je antwoordconcepten"}{" "}
-                    <span className="count-badge">
-                      {tab === "Inbox"
-                        ? 12
-                        : tab === "Taken"
-                          ? state.tasks.length
-                          : tab === "Dagplanning"
-                            ? scheduled.length
-                            : state.drafts.length}
-                    </span>
-                  </h2>
-                  <p>
-                    {tab === "Inbox"
-                      ? "Van een volle inbox naar een duidelijk volgende stap."
-                      : tab === "Taken"
-                        ? "Geaccepteerde voorstellen, klaar om op te pakken."
-                        : tab === "Dagplanning"
-                          ? "Maandag 26 oktober · 09:00 – 17:00"
-                          : "Vooraf gemaakte voorbeelden. Controleer elk concept zelf."}
-                  </p>
-                </div>
-                {tab === "Inbox" && (
-                  <span className="small-label">VOORBEELDINBOX</span>
+          </div>
+        )}
+        {view === "work" ? (
+          <>
+            <section className="day-toolbar" aria-label="Geselecteerde werkdag">
+              <div className="date-controls">
+                <button
+                  className="icon-button"
+                  aria-label="Vorige dag"
+                  disabled={date === "2000-01-01"}
+                  onClick={() => setDate(shiftDay(date, -1))}
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <label className="day-picker">
+                  <span>{dateLabel(date, true)}</span>
+                  <input
+                    aria-label="Werkdag"
+                    type="date"
+                    min="2000-01-01"
+                    max="2100-12-31"
+                    value={date}
+                    onChange={(e) => {
+                      if (validDate(e.target.value)) setDate(e.target.value);
+                    }}
+                  />
+                  <ChevronDown size={14} />
+                </label>
+                <button
+                  className="icon-button"
+                  aria-label="Volgende dag"
+                  disabled={date === "2100-12-31"}
+                  onClick={() => setDate(shiftDay(date, 1))}
+                >
+                  <ArrowRight size={16} />
+                </button>
+                {date !== demoDay && (
+                  <button
+                    className="quiet demo-day"
+                    onClick={() => setDate(demoDay)}
+                  >
+                    Voorbeelddag
+                  </button>
                 )}
               </div>
-              {tab === "Inbox" && (
+              <div className="capacity">
+                <span>
+                  <i />
+                  {minutesLabel(free)} vrij
+                </span>
+                <span>{minutesLabel(remaining)} nog te plannen</span>
+              </div>
+            </section>
+            <div
+              className={`capacity-note ${remaining > free ? "overloaded" : ""}`}
+              role={remaining > free ? "status" : undefined}
+            >
+              {remaining > free ? (
                 <>
-                  <div className="inbox-tools">
-                    <div className="filters">
-                      {["Alle mails", "Aandacht nodig", "Ongelezen"].map(
-                        (f) => (
-                          <button
-                            className={filter === f ? "selected" : ""}
-                            onClick={() => setFilter(f)}
-                            key={f}
-                          >
-                            {f}
-                            {f === "Alle mails" && <span>12</span>}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                    <input
-                      aria-label="Mails zoeken"
-                      placeholder="Zoek in je inbox…"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                  </div>
-                  <div className="mail-list">
-                    {shown.map((m) => (
-                      <button
-                        className={`mail-row ${state.read.includes(m.id) ? "read" : ""}`}
-                        key={m.id}
-                        onClick={() => openMail(m)}
-                      >
-                        <span className={`avatar ${m.color}`}>
-                          {m.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join("")}
-                        </span>
-                        <span className="mail-copy">
-                          <span className="sender-line">
-                            <strong>{m.name}</strong>
-                            <span>{m.company}</span>
-                          </span>
-                          <span className="subject">{m.subject}</span>
-                          <span className="preview">{m.preview}</span>
-                          <span
-                            className={`mail-label ${accepted(m.id) ? "accepted" : ""}`}
-                          >
-                            {accepted(m.id) ? (
-                              <Check size={11} />
-                            ) : (
-                              <Sparkles size={11} />
-                            )}{" "}
-                            {accepted(m.id)
-                              ? "Taak toegevoegd"
-                              : "Taakvoorstel klaar"}
-                          </span>
-                        </span>
-                        <span className="mail-meta">
-                          <time>{m.time}</time>
-                          {!state.read.includes(m.id) && (
-                            <span className="unread-dot" />
-                          )}
-                          <ChevronRight size={16} />
-                        </span>
-                      </button>
-                    ))}
-                    {shown.length === 0 && (
-                      <div className="empty">
-                        Geen mails gevonden. Probeer een andere zoekterm of
-                        filter.
-                      </div>
-                    )}
-                  </div>
+                  <strong>
+                    {minutesLabel(remaining - free)} meer werk dan ruimte.
+                  </strong>{" "}
+                  Verplaats een taak naar een andere dag of maak tijd vrij.
+                </>
+              ) : unplanned.length ? (
+                <>
+                  <strong>
+                    {unplanned.length}{" "}
+                    {unplanned.length === 1 ? "taak heeft" : "taken hebben"} nog
+                    geen tijdstip.
+                  </strong>{" "}
+                  {free > 0
+                    ? "Plan een taak in of laat ruimte over."
+                    : "De dag is vol. Verplaats werk naar een andere dag."}
+                </>
+              ) : (
+                <>
+                  <strong>
+                    {free > 0 ? "Je hebt ruimte over." : "Je dag is ingepland."}
+                  </strong>{" "}
+                  {free > 0
+                    ? "Voeg werk toe wanneer het past."
+                    : "Houd het hierbij, of maak eerst tijd vrij."}
                 </>
               )}
-              {tab === "Taken" && (
+            </div>
+            <nav className="mobile-tabs" aria-label="Werkoverzicht onderdelen">
+              {[
+                ["inbox", "Inbox"],
+                ["taken", "Taken"],
+                ["planning", "Planning"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  className={mobile === id ? "active" : ""}
+                  onClick={() => setMobile(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <div className="workspace">
+              <section
+                className={`column inbox-column ${mobile === "inbox" ? "mobile-visible" : ""}`}
+                aria-labelledby="inbox-heading"
+              >
+                <div className="column-head">
+                  <div>
+                    <span className="step">01</span>
+                    <h2 id="inbox-heading">
+                      Inbox <span>{mails.length}</span>
+                    </h2>
+                  </div>
+                  <span className="column-meta">Voorbeeldmails</span>
+                </div>
+                <div className="column-tools">
+                  <div className="search">
+                    <Search size={15} />
+                    <input
+                      aria-label="Mails zoeken"
+                      placeholder="Zoek een mail"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="filter-row">
+                    <button
+                      className={mailFilter === "alle" ? "active" : ""}
+                      onClick={() => setMailFilter("alle")}
+                    >
+                      Alle mails
+                    </button>
+                    <button
+                      className={mailFilter === "open" ? "active" : ""}
+                      onClick={() => setMailFilter("open")}
+                    >
+                      Zonder taak
+                    </button>
+                  </div>
+                </div>
+                <div className="mail-list">
+                  {mailList.map((m) => {
+                    const task = state.tasks.find((t) => t.mailId === m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        className={`mail-row ${state.read.includes(m.id) ? "read" : ""}`}
+                        onClick={() => openMail(m)}
+                      >
+                        <div className="mail-from">
+                          <span>{m.name}</span>
+                          <time>{m.time}</time>
+                        </div>
+                        <h3>{m.subject}</h3>
+                        <p>{m.body}</p>
+                        <div className="mail-bottom">
+                          <span>{m.company}</span>
+                          <span className={task ? "has-task" : ""}>
+                            {task ? (
+                              <>
+                                <Check size={11} />
+                                {task.done ? "Afgerond" : "Taak gemaakt"}
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={11} />
+                                Taakvoorstel
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {!mailList.length && (
+                    <p className="empty">
+                      Geen mails gevonden. Pas je zoekterm of filter aan.
+                    </p>
+                  )}
+                </div>
+                <div className="column-foot">
+                  Alleen jij bepaalt welke mails een taak worden.
+                </div>
+              </section>
+              <section
+                className={`column tasks-column ${mobile === "taken" ? "mobile-visible" : ""}`}
+                aria-labelledby="tasks-heading"
+              >
+                <div className="column-head">
+                  <div>
+                    <span className="step">02</span>
+                    <h2 id="tasks-heading">
+                      Taken <span>{taskList.length}</span>
+                    </h2>
+                  </div>
+                  <button
+                    className="icon-button"
+                    aria-label="Nieuwe taak"
+                    onClick={newTask}
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
+                <div className="column-tools">
+                  <div className="task-summary">
+                    <strong>
+                      {minutesLabel(
+                        dayTasks.reduce((a, t) => a + t.duration, 0),
+                      )}
+                    </strong>
+                    <span>werk op {dateLabel(date)}</span>
+                  </div>
+                  <div className="filter-row">
+                    {[
+                      ["dag", "Deze dag"],
+                      ["alle", "Alle open"],
+                      ["afgerond", "Afgerond"],
+                    ].map(([id, label]) => (
+                      <button
+                        key={id}
+                        className={taskFilter === id ? "active" : ""}
+                        onClick={() => setTaskFilter(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="task-list">
-                  {state.tasks.map((t) => (
+                  {taskList.map((t) => (
                     <article
                       className={`task-card ${t.done ? "done" : ""}`}
                       key={t.id}
+                      data-task-id={t.id}
                     >
-                      <button
-                        className="check-button"
-                        aria-label={
-                          t.done ? `Heropen ${t.title}` : `Voltooi ${t.title}`
-                        }
-                        onClick={() =>
-                          update({
-                            tasks: state.tasks.map((x) =>
-                              x.id === t.id
-                                ? { ...x, done: !x.done, start: undefined }
-                                : x,
-                            ),
-                          })
-                        }
-                      >
-                        {t.done && <Check size={16} />}
-                      </button>
-                      <div className="task-copy">
-                        <h3>{t.title}</h3>
+                      <div className="task-title">
+                        <button
+                          className="checkbox"
+                          aria-label={`${t.done ? "Heropen" : "Voltooi"} ${t.title}`}
+                          onClick={() => toggleTask(t)}
+                        >
+                          {t.done && <Check size={14} />}
+                        </button>
+                        <button
+                          className="task-name"
+                          onClick={() =>
+                            edit({ kind: "task", item: { ...t }, fresh: false })
+                          }
+                        >
+                          {t.title}
+                        </button>
+                        <button
+                          className="icon-button edit-task"
+                          aria-label={`Bewerk ${t.title}`}
+                          onClick={() =>
+                            edit({ kind: "task", item: { ...t }, fresh: false })
+                          }
+                        >
+                          <MoreHorizontal size={17} />
+                        </button>
+                      </div>
+                      <div className="task-content">
                         <div className="task-details">
                           <span
                             className={`priority ${t.priority.toLowerCase()}`}
@@ -525,11 +677,15 @@ export default function Home() {
                             {t.priority}
                           </span>
                           <span>
-                            <Clock3 size={13} />
+                            <Clock3 size={12} />
                             {t.duration} min
                           </span>
-                          <span>
-                            Uiterlijk{" "}
+                          <span
+                            className={
+                              t.deadline < date && !t.done ? "late" : ""
+                            }
+                          >
+                            Voor{" "}
                             {new Date(
                               t.deadline + "T12:00:00",
                             ).toLocaleDateString("nl-NL", {
@@ -538,537 +694,687 @@ export default function Home() {
                             })}
                           </span>
                         </div>
-                        <button
-                          className="text-button"
-                          onClick={() =>
-                            openMail(mails.find((m) => m.id === t.mailId)!)
-                          }
-                        >
-                          <MailIcon size={13} />
-                          Bronmail bekijken
-                        </button>
+                        {t.date !== date && (
+                          <span className="other-day">
+                            Werkdag: {dateLabel(t.date)}
+                          </span>
+                        )}
+                        <div className="task-actions">
+                          {t.mailId !== null ? (
+                            <button
+                              className="source"
+                              onClick={() =>
+                                openMail(mails.find((m) => m.id === t.mailId)!)
+                              }
+                            >
+                              <MailIcon size={12} />
+                              Bronmail
+                            </button>
+                          ) : (
+                            <span className="manual-label">
+                              Zelf toegevoegd
+                            </span>
+                          )}
+                          {!t.done && (
+                            <button
+                              className={`plan-button ${t.start !== undefined ? "planned" : ""}`}
+                              onClick={() => openPlan(t)}
+                            >
+                              {t.start !== undefined
+                                ? `${time(t.start)} · Verplaatsen`
+                                : "Inplannen"}
+                              <ArrowRight size={13} />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {!t.done && (
-                        <button
-                          className="secondary compact"
-                          onClick={() => {
-                            if (t.start !== undefined) {
-                              setTab("Dagplanning");
-                              return;
-                            }
-                            setPlanning(t);
-                            setSlot("");
-                          }}
-                        >
-                          {t.start !== undefined
-                            ? `${time(t.start)} gepland`
-                            : "Inplannen"}
-                          <ChevronRight size={14} />
-                        </button>
-                      )}
                     </article>
                   ))}
-                </div>
-              )}
-              {tab === "Dagplanning" && (
-                <div className="schedule">
-                  {Array.from({ length: 9 }, (_, i) => (
-                    <div className="hour-line" key={i} style={{ top: i * 100 }}>
-                      <time>{String(9 + i).padStart(2, "0")}:00</time>
-                      <span />
+                  {!taskList.length && (
+                    <div className="empty">
+                      <h3>
+                        {taskFilter === "afgerond"
+                          ? "Nog geen afgeronde taken."
+                          : "Geen taken in dit overzicht."}
+                      </h3>
+                      <p>
+                        {taskFilter === "dag"
+                          ? "Voeg een taak toe of verplaats werk uit ‘Alle open’ naar deze dag."
+                          : "Maak een taak aan of kies een ander filter."}
+                      </p>
+                      <button className="secondary" onClick={newTask}>
+                        <Plus size={14} />
+                        Taak toevoegen
+                      </button>
                     </div>
-                  ))}
-                  {occupied.map((b, i) => (
-                    <div
-                      className={`event ${b.type === "Pauze" ? "break" : b.type === "Taak" ? "work" : "meeting"}`}
-                      key={`${b.title}-${i}`}
-                      style={{
-                        top: ((b.start - 540) / 60) * 100,
-                        height: (b.duration / 60) * 100 - 4,
-                      }}
-                    >
-                      <strong>{b.title}</strong>
-                      <span>
-                        {time(b.start)} – {time(b.start + b.duration)} ·{" "}
-                        {b.type}
-                      </span>
-                      {b.type === "Taak" && (
-                        <button
-                          aria-label={`Verwijder ${b.title} uit planning`}
-                          onClick={() =>
-                            update({
-                              tasks: state.tasks.map((t) =>
-                                t.title === b.title && t.start === b.start
-                                  ? { ...t, start: undefined }
-                                  : t,
-                              ),
-                            })
-                          }
-                        >
-                          <X size={13} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  )}
                 </div>
-              )}
-              {tab === "Antwoordconcepten" && (
-                <div className="draft-list">
-                  {state.drafts.map((d) => (
-                    <DraftEditor
-                      key={d.mailId}
-                      draft={d}
-                      onMail={() => openMail(mails[d.mailId - 1])}
-                      onChange={(next) =>
-                        setState((s) => ({
-                          ...s,
-                          drafts: s.drafts.map((x) =>
-                            x.mailId === d.mailId ? next : x,
-                          ),
-                        }))
-                      }
-                    />
-                  ))}
-                  <p className="draft-footnote">
-                    Goedkeuren is alleen een demostatus. Er wordt niets
-                    verzonden.
-                  </p>
-                </div>
-              )}
-            </section>
-            <aside className="right-column">
-              <section className="panel today-card">
-                <div className="mini-heading">
-                  <span className="stat-icon green">
-                    <CalendarDays size={19} />
-                  </span>
-                  <h2>Vandaag in balans</h2>
-                </div>
-                <p>Een realistisch plan begint met ruimte.</p>
-                <div className="balance-bar">
-                  <span style={{ width: `${(135 / 480) * 100}%` }} />
-                  <span style={{ width: `${(plannedMinutes / 480) * 100}%` }} />
-                </div>
-                <div className="balance-legend">
-                  <span>
-                    <i className="legend-fixed" />
-                    Afspraken & pauze
-                  </span>
-                  <b>2u 15m</b>
-                  <span>
-                    <i className="legend-task" />
-                    Geplande taken
-                  </span>
-                  <b>{plannedMinutes} min</b>
-                  <span>
-                    <i className="legend-free" />
-                    Vrije ruimte
-                  </span>
-                  <b>{freeMinutes} min</b>
-                </div>
-                <div className="divider" />
-                <h3>Je volgende momenten</h3>
-                {occupied
-                  .slice()
-                  .sort((a, b) => a.start - b.start)
-                  .slice(0, 3)
-                  .map((b) => (
-                    <div className="upcoming" key={b.title}>
-                      <time>{time(b.start)}</time>
-                      <div>
-                        <strong>{b.title}</strong>
-                        <span>
-                          {b.duration} minuten · {b.type}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                <button
-                  className="text-button full"
-                  onClick={() => setTab("Dagplanning")}
-                >
-                  Bekijk je dagplanning
-                  <ArrowUpRight size={15} />
+                <button className="add-task-row" onClick={newTask}>
+                  <Plus size={16} />
+                  Taak toevoegen zonder mail
                 </button>
               </section>
-              <section className="tip-card">
-                <Sparkles size={20} />
-                <h3>Een beetje hulp, jij aan het stuur.</h3>
-                <p>
-                  Bij elke mail staat een taakvoorstel klaar. Pas het aan, kies
-                  wat past en plan het op jouw moment.
-                </p>
-                <span>Geen automatische acties. Wel overzicht.</span>
-              </section>
-              <div className="local-note">
-                <span className="status-dot" />
-                {!ready
-                  ? "Je werkplek laden…"
-                  : storageError
-                    ? "Alleen in deze sessie"
-                    : "Je wijzigingen blijven in deze browser"}
-              </div>
-            </aside>
-          </div>
-          <footer>
-            Gemaakt voor meer overzicht, niet voor een vollere dag.
-            <span>PlannerPal · Interactief prototype</span>
-            <button className="text-button" onClick={() => setReset(true)}>
-              <RotateCcw size={12} />
-              Voorbeelddata herstellen
-            </button>
-          </footer>
-        </div>
-      </main>
-      {selected && (
-        <div
-          className="modal-backdrop"
-          onClick={() => {
-            setSelected(null);
-            setProposal(null);
-          }}
-        >
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mail-title"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSelected(null);
-            }}
-          >
-            <button
-              className="close"
-              aria-label="Mail sluiten"
-              onClick={() => {
-                setSelected(null);
-                setProposal(null);
-              }}
-              autoFocus
-            >
-              <X />
-            </button>
-            <span className="eyebrow">VOORBEELDMAIL</span>
-            <h2 id="mail-title">{selected.subject}</h2>
-            <div className="modal-sender">
-              <span className={`avatar ${selected.color}`}>
-                {selected.name[0]}
-              </span>
-              <div>
-                <strong>{selected.name}</strong>
-                <small>
-                  {selected.company} · {selected.time}
-                </small>
-              </div>
-            </div>
-            <p className="mail-body">
-              Hoi,
-              <br />
-              <br />
-              {selected.body}
-              <br />
-              <br />
-              Groet,
-              <br />
-              {selected.name.split(" ")[0]}
-            </p>
-            <div className="proposal-box">
-              <div className="proposal-heading">
-                <Sparkles size={18} />
-                <strong>Voorgestelde volgende stap</strong>
-                <span>Voorbeeld</span>
-              </div>
-              {accepted(selected.id) ? (
-                <>
-                  <p>Deze mail heeft al een taak in je takenlijst.</p>
-                  <button
-                    className="primary"
-                    onClick={() => {
-                      setSelected(null);
-                      setTab("Taken");
-                    }}
-                  >
-                    Bekijk de taak
-                    <ChevronRight size={15} />
-                  </button>
-                </>
-              ) : proposal ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    accept();
-                  }}
-                >
-                  <label>
-                    Taak
-                    <input
-                      required
-                      maxLength={160}
-                      value={proposal.title}
-                      onChange={(e) =>
-                        setProposal({ ...proposal, title: e.target.value })
-                      }
-                    />
-                  </label>
-                  <div className="form-grid">
-                    <label>
-                      Prioriteit
-                      <select
-                        value={proposal.priority}
-                        onChange={(e) =>
-                          setProposal({
-                            ...proposal,
-                            priority: e.target.value as Priority,
-                          })
-                        }
-                      >
-                        {["Hoog", "Normaal", "Laag"].map((p) => (
-                          <option key={p}>{p}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Deadline
-                      <input
-                        type="date"
-                        required
-                        value={proposal.deadline}
-                        onChange={(e) =>
-                          setProposal({ ...proposal, deadline: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Duur (minuten)
-                      <input
-                        type="number"
-                        min="5"
-                        max="480"
-                        required
-                        value={proposal.duration}
-                        onChange={(e) =>
-                          setProposal({
-                            ...proposal,
-                            duration: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </label>
+              <section
+                className={`column agenda-column ${mobile === "planning" ? "mobile-visible" : ""}`}
+                aria-labelledby="agenda-heading"
+              >
+                <div className="column-head">
+                  <div>
+                    <span className="step">03</span>
+                    <h2 id="agenda-heading">Dagplanning</h2>
                   </div>
-                  <button className="primary" type="submit">
-                    <Check size={16} />
-                    Taak accepteren
-                  </button>
-                </form>
-              ) : (
-                <>
-                  <h3>{selected.task}</h3>
-                  <p>
-                    {selected.duration} minuten · Prioriteit: {selected.priority.toLowerCase()}
-                  </p>
                   <button
-                    className="primary"
+                    className="icon-button"
+                    aria-label="Afspraak of pauze toevoegen"
                     onClick={() =>
-                      setProposal({
-                        id: selected.id,
-                        mailId: selected.id,
-                        title: selected.task,
-                        duration: selected.duration,
-                        priority: selected.priority,
-                        deadline: selected.deadline,
-                        done: false,
+                      edit({
+                        kind: "block",
+                        fresh: true,
+                        item: {
+                          id: Date.now(),
+                          date,
+                          title: "",
+                          type: "Afspraak",
+                          start: 540,
+                          duration: 30,
+                        },
                       })
                     }
                   >
-                    Voorstel bekijken & aanpassen
-                    <ChevronRight size={16} />
+                    <Plus size={18} />
                   </button>
-                </>
-              )}
-            </div>
-            <button
-              className="text-button"
-              onClick={() => {
-                setState((s) => ({
-                  ...s,
-                  drafts: s.drafts.some((d) => d.mailId === selected.id)
-                    ? s.drafts
-                    : [
-                        ...s.drafts,
-                        {
-                          mailId: selected.id,
-                          text: selected.reply,
-                          approved: false,
-                        },
-                      ],
-                }));
-                setSelected(null);
-                setTab("Antwoordconcepten");
-              }}
-            >
-              Bekijk antwoordconcept
-              <ArrowUpRight size={15} />
-            </button>
-          </section>
-        </div>
-      )}
-      {planning && (
-        <div className="modal-backdrop">
-          <section
-            className="modal small"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="plan-title"
-          >
-            <button
-              autoFocus
-              className="close"
-              aria-label="Planning sluiten"
-              onClick={() => setPlanning(null)}
-            >
-              <X />
-            </button>
-            <span className="eyebrow">MAAK RUIMTE VOOR WAT TELT</span>
-            <h2 id="plan-title">Plan je taak</h2>
-            <p>
-              {planning.title} · {planning.duration} minuten
-            </p>
-            {freeSlots(planning).length ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const start = Number(slot);
-                  if (slot === "" || !freeSlots(planning).includes(start))
-                    return;
-                  update({
-                    tasks: state.tasks.map((t) =>
-                      t.id === planning.id ? { ...t, start } : t,
-                    ),
-                  });
-                  setPlanning(null);
-                  setTab("Dagplanning");
-                  setNotice("Je taak is ingepland, zonder overlap.");
-                }}
-              >
-                <label>
-                  Vrij moment op maandag 26 oktober
-                  <select
-                    required
-                    value={slot}
-                    onChange={(e) => setSlot(e.target.value)}
-                  >
-                    <option value="">Kies een starttijd</option>
-                    {freeSlots(planning).map((s) => (
-                      <option value={s} key={s}>
-                        {time(s)} – {time(s + planning.duration)}
-                      </option>
+                </div>
+                <div className="agenda-intro">
+                  <span>09:00 — 17:00</span>
+                  <span>{minutesLabel(free)} beschikbaar</span>
+                </div>
+                <div className="agenda-legend">
+                  <span>
+                    <i />
+                    Werk
+                  </span>
+                  <span>
+                    <i />
+                    Afspraak
+                  </span>
+                  <span>
+                    <i />
+                    Pauze
+                  </span>
+                </div>
+                <div
+                  className="timeline-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Tijdlijn van 09:00 tot 17:00"
+                >
+                  <div className="timeline">
+                    {Array.from({ length: 9 }, (_, i) => (
+                      <div
+                        className="hour-line"
+                        style={{ top: `calc(${i} * var(--hour-height))` }}
+                        key={i}
+                      >
+                        <time>{String(i + 9).padStart(2, "0")}:00</time>
+                        <span />
+                      </div>
                     ))}
-                  </select>
-                </label>
-                <button className="primary" type="submit">
-                  <CalendarDays size={16} />
-                  Toevoegen aan dagplanning
-                </button>
-              </form>
-            ) : (
-              <div className="warning">
-                Er is geen aaneengesloten ruimte voor deze taak. Haal eerst een
-                andere taak uit de planning.
-              </div>
-            )}
+                    {events.map((event) => (
+                      <button
+                        key={`${event.kind}-${event.id}`}
+                        className={`event ${event.duration < 45 ? "short-event" : ""} ${event.type === "Taak" ? "work" : event.type === "Pauze" ? "break" : "meeting"}`}
+                        aria-label={`${event.type}: ${event.title}, ${time(event.start)} tot ${time(event.start + event.duration)}`}
+                        title={`${event.title} · ${time(event.start)}–${time(event.start + event.duration)}`}
+                        style={{
+                          top: `calc(${(event.start - 540) / 60} * var(--hour-height) + 2px)`,
+                          height: `calc(${event.duration / 60} * var(--hour-height) - 3px)`,
+                        }}
+                        onClick={() =>
+                          event.kind === "task"
+                            ? openPlan(event as Task)
+                            : edit({
+                                kind: "block",
+                                item: event as Block,
+                                fresh: false,
+                              })
+                        }
+                      >
+                        <strong>{event.title}</strong>
+                        <span>
+                          {time(event.start)}–
+                          {time(event.start + event.duration)} · {event.type}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="agenda-footer">
+                  Klik op een blok om het aan te passen.
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <section className="drafts-view">
+            <div className="drafts-summary">
+              <h2>
+                Te controleren{" "}
+                <span>{state.drafts.filter((d) => !d.approved).length}</span>
+              </h2>
+              <p>
+                Goedkeuren verandert alleen de status. Er wordt niets verzonden.
+              </p>
+            </div>
+            <div className="draft-grid">
+              {state.drafts.map((d) => {
+                const m = mails.find((m) => m.id === d.mailId)!;
+                return (
+                  <article className="draft-card" key={d.mailId}>
+                    <header>
+                      <div>
+                        <span className="overline">
+                          AAN {m.name.toUpperCase()}
+                        </span>
+                        <h3>{m.subject}</h3>
+                      </div>
+                      <span
+                        className={`draft-status ${d.approved ? "approved" : ""}`}
+                      >
+                        {d.approved ? "Goedgekeurd" : "Concept"}
+                      </span>
+                    </header>
+                    <label className="sr-only" htmlFor={`draft-${d.mailId}`}>
+                      Antwoord aan {m.name}
+                    </label>
+                    <textarea
+                      id={`draft-${d.mailId}`}
+                      value={d.text}
+                      onChange={(e) => {
+                        setUndo(null);
+                        setState((s) => ({
+                          ...s,
+                          drafts: s.drafts.map((x) =>
+                            x.mailId === d.mailId
+                              ? { ...x, text: e.target.value, approved: false }
+                              : x,
+                          ),
+                        }));
+                      }}
+                    />
+                    <div className="draft-actions">
+                      <button className="source" onClick={() => openMail(m)}>
+                        <MailIcon size={13} />
+                        Bronmail
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={d.approved || !d.text.trim()}
+                        onClick={() =>
+                          commit(
+                            {
+                              ...state,
+                              drafts: state.drafts.map((x) =>
+                                x.mailId === d.mailId
+                                  ? { ...x, approved: true }
+                                  : x,
+                              ),
+                            },
+                            "Concept goedgekeurd. Er is niets verstuurd.",
+                          )
+                        }
+                      >
+                        <Check size={14} />
+                        {d.approved ? "Goedgekeurd" : "Goedkeuren"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </section>
-        </div>
-      )}
-      {reset && (
-        <div className="modal-backdrop">
-          <section
-            className="modal small"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="reset-title"
-          >
-            <h2 id="reset-title">Opnieuw beginnen?</h2>
+        )}
+        <footer>
+          <span className={`save-status ${storageError ? "failed" : ""}`}>
+            <i />
+            {!ready
+              ? "Werkplek laden…"
+              : storageError
+                ? "Opslag niet beschikbaar"
+                : "Bewaard in deze browser"}
+          </span>
+          <span>
+            Geen account. Geen mailkoppeling. Jouw keuzes blijven lokaal.
+          </span>
+        </footer>
+      </main>
+      {mail && (
+        <Dialog
+          title={mail.subject}
+          label="Voorbeeldmail"
+          side
+          onClose={() => setMail(null)}
+        >
+          <div className="mail-person">
+            <span className="person-avatar">{mail.name[0]}</span>
+            <div>
+              <strong>{mail.name}</strong>
+              <span>
+                {mail.company} · {mail.time}
+              </span>
+            </div>
+          </div>
+          <div className="mail-body">
+            Hoi,
+            <br />
+            <br />
+            {mail.body}
+            <br />
+            <br />
+            Groet,
+            <br />
+            {mail.name.split(" ")[0]}
+          </div>
+          <section className="proposal">
+            <span className="overline">VOORGESTELDE TAAK · VAST VOORBEELD</span>
+            <h3>{mailTask?.title ?? mail.task}</h3>
             <p>
-              Je aangepaste taken, planning en concepten worden vervangen door
-              de oorspronkelijke voorbeelddata.
+              {mailTask
+                ? "Deze mail heeft al een taak."
+                : `${mail.duration} minuten · Prioriteit: ${mail.priority.toLowerCase()}`}
             </p>
-            <div className="button-row">
-              <button
-                autoFocus
-                className="secondary"
-                onClick={() => setReset(false)}
-              >
-                Annuleren
-              </button>
+            {mailTask ? (
               <button
                 className="primary"
                 onClick={() => {
-                  setState(initialState());
-                  setReset(false);
-                  setSelected(null);
-                  setPlanning(null);
-                  setQuery("");
-                  setFilter("Alle mails");
-                  setNotice("Alle voorbeelddata is hersteld.");
+                  setMail(null);
+                  edit({ kind: "task", item: { ...mailTask }, fresh: false });
                 }}
               >
-                Voorbeelddata herstellen
+                Taak aanpassen
+                <ArrowRight size={15} />
+              </button>
+            ) : (
+              <button className="primary" onClick={() => proposal(mail)}>
+                Taakvoorstel aanpassen
+                <ArrowRight size={15} />
+              </button>
+            )}
+          </section>
+          <button
+            className="secondary wide"
+            onClick={() => {
+              setUndo(null);
+              setState((s) => ({
+                ...s,
+                drafts: s.drafts.some((d) => d.mailId === mail.id)
+                  ? s.drafts
+                  : [
+                      ...s.drafts,
+                      { mailId: mail.id, text: mail.reply, approved: false },
+                    ],
+              }));
+              setMail(null);
+              setView("drafts");
+            }}
+          >
+            Antwoord controleren
+            <ArrowRight size={15} />
+          </button>
+        </Dialog>
+      )}
+      {editor && (
+        <Dialog
+          title={
+            editor.kind === "task"
+              ? editor.fresh
+                ? editor.item.mailId === null
+                  ? "Nieuwe taak"
+                  : "Taakvoorstel aanpassen"
+                : "Taak aanpassen"
+              : editor.fresh
+                ? "Afspraak of pauze toevoegen"
+                : "Agendablok aanpassen"
+          }
+          label={editor.kind === "task" ? "TAAK" : "DAGPLANNING"}
+          onClose={() => setEditor(null)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveEditor();
+            }}
+          >
+            <label>
+              Titel
+              <input
+                autoFocus
+                required
+                maxLength={160}
+                value={editor.item.title}
+                onChange={(e) => patchEditor({ title: e.target.value })}
+              />
+            </label>
+            <div className="form-grid">
+              <label>
+                Werkdag
+                <input
+                  type="date"
+                  min="2000-01-01"
+                  max="2100-12-31"
+                  required
+                  value={editor.item.date}
+                  onChange={(e) => patchEditor({ date: e.target.value })}
+                />
+              </label>
+              <label>
+                Duur (minuten)
+                <input
+                  type="number"
+                  min={5}
+                  max={480}
+                  step={1}
+                  required
+                  value={editor.item.duration || ""}
+                  onChange={(e) =>
+                    patchEditor({ duration: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
+            {editor.kind === "task" ? (
+              <>
+                <div className="form-grid">
+                  <label>
+                    Prioriteit
+                    <select
+                      value={editor.item.priority}
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          item: {
+                            ...editor.item,
+                            priority: e.target.value as Priority,
+                          },
+                        })
+                      }
+                    >
+                      {["Hoog", "Normaal", "Laag"].map((p) => (
+                        <option key={p}>{p}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Deadline
+                    <input
+                      type="date"
+                      min="2000-01-01"
+                      max="2100-12-31"
+                      required
+                      value={editor.item.deadline}
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          item: { ...editor.item, deadline: e.target.value },
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                {!editor.item.done && (
+                  <label>
+                    Tijdstip
+                    <select
+                      value={editor.item.start ?? ""}
+                      onChange={(e) => {
+                        if (editor.kind === "task")
+                          setEditor({
+                            ...editor,
+                            item: {
+                              ...editor.item,
+                              start:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            },
+                          });
+                      }}
+                    >
+                      <option value="">Nog niet inplannen</option>
+                      {Array.from(
+                        new Set([
+                          ...(editor.item.start !== undefined
+                            ? [editor.item.start]
+                            : []),
+                          ...slotsFor(state, editor.item, editor.item.date),
+                        ]),
+                      )
+                        .sort((a, b) => a - b)
+                        .map((start) => (
+                          <option key={start} value={start}>
+                            {time(start)} – {time(start + editor.item.duration)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                <p className="form-hint">
+                  De werkdag bepaalt waar de taak verschijnt. De deadline blijft
+                  staan als je de taak naar een andere dag verplaatst.
+                </p>
+              </>
+            ) : (
+              <div className="form-grid">
+                <label>
+                  Soort
+                  <select
+                    value={editor.item.type}
+                    onChange={(e) => {
+                      if (editor.kind === "block")
+                        setEditor({
+                          ...editor,
+                          item: {
+                            ...editor.item,
+                            type: e.target.value as Block["type"],
+                          },
+                        });
+                    }}
+                  >
+                    <option>Afspraak</option>
+                    <option>Pauze</option>
+                  </select>
+                </label>
+                <label>
+                  Starttijd
+                  <input
+                    type="time"
+                    required
+                    min="09:00"
+                    max="16:55"
+                    value={time(editor.item.start)}
+                    onChange={(e) => {
+                      const [h, m] = e.target.value.split(":").map(Number);
+                      setEditor({
+                        ...editor,
+                        item: { ...editor.item, start: h * 60 + m },
+                      });
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="dialog-actions">
+              {!editor.fresh && (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => {
+                    const next =
+                      editor.kind === "task"
+                        ? {
+                            ...state,
+                            tasks: state.tasks.filter(
+                              (t) => t.id !== editor.item.id,
+                            ),
+                          }
+                        : {
+                            ...state,
+                            blocks: state.blocks.filter(
+                              (b) => b.id !== editor.item.id,
+                            ),
+                          };
+                    commit(
+                      next,
+                      editor.kind === "task"
+                        ? "Taak verwijderd."
+                        : "Agendablok verwijderd.",
+                    );
+                    setEditor(null);
+                  }}
+                >
+                  Verwijderen
+                </button>
+              )}
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setEditor(null)}
+              >
+                Annuleren
+              </button>
+              <button className="primary" type="submit">
+                {editor.fresh &&
+                editor.kind === "task" &&
+                editor.item.mailId !== null
+                  ? "Taak accepteren"
+                  : "Opslaan"}
               </button>
             </div>
-          </section>
-        </div>
+          </form>
+        </Dialog>
+      )}
+      {plan && (
+        <Dialog
+          title="Taak inplannen"
+          label="DAGPLANNING"
+          onClose={() => setPlan(null)}
+        >
+          <h3 className="plan-task-title">{plan.task.title}</h3>
+          <p className="form-hint">
+            {plan.task.duration} minuten · Deadline{" "}
+            {dateLabel(plan.task.deadline)}. Alleen vrije momenten worden
+            aangeboden.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              savePlan();
+            }}
+          >
+            <label>
+              Werkdag
+              <input
+                type="date"
+                required
+                min="2000-01-01"
+                max="2100-12-31"
+                value={plan.date}
+                onChange={(e) => {
+                  setError("");
+                  setPlan({ ...plan, date: e.target.value, start: "" });
+                }}
+              />
+            </label>
+            <label>
+              Vrij moment
+              <select
+                value={plan.start}
+                required
+                onChange={(e) => setPlan({ ...plan, start: e.target.value })}
+              >
+                <option value="">Kies een starttijd</option>
+                {slotsFor(state, plan.task, plan.date).map((start) => (
+                  <option key={start} value={start}>
+                    {time(start)} – {time(start + plan.task.duration)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {slotsFor(state, plan.task, plan.date).length === 0 && (
+              <p className="form-error">
+                Geen aaneengesloten ruimte voor deze taak. Kies een andere dag
+                of pas de agenda aan.
+              </p>
+            )}
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="dialog-actions">
+              {plan.task.start !== undefined && (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => {
+                    commit(
+                      {
+                        ...state,
+                        tasks: state.tasks.map((t) =>
+                          t.id === plan.task.id
+                            ? { ...t, start: undefined }
+                            : t,
+                        ),
+                      },
+                      "Taak uit de planning gehaald.",
+                    );
+                    setPlan(null);
+                  }}
+                >
+                  Uit planning halen
+                </button>
+              )}
+              <button className="primary" type="submit" disabled={!plan.start}>
+                Inplannen
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+      {reset && (
+        <Dialog
+          title="Voorbeelddata herstellen?"
+          label="OPNIEUW BEGINNEN"
+          onClose={() => setReset(false)}
+        >
+          <p className="reset-description">
+            Je taken, agenda en concepten worden vervangen door de
+            oorspronkelijke voorbeelden. Je kunt dit daarna ongedaan maken.
+          </p>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => setReset(false)}>
+              Annuleren
+            </button>
+            <button
+              className="primary"
+              onClick={() => {
+                commit(initialState(), "Voorbeelddata hersteld.");
+                setDate(demoDay);
+                setTaskFilter("dag");
+                setMailFilter("alle");
+                setSearch("");
+                setReset(false);
+              }}
+            >
+              Herstellen
+            </button>
+          </div>
+        </Dialog>
       )}
     </div>
-  );
-}
-function DraftEditor({
-  draft,
-  onChange,
-  onMail,
-}: {
-  draft: Draft;
-  onChange: (d: Draft) => void;
-  onMail: () => void;
-}) {
-  const m = mails[draft.mailId - 1];
-  return (
-    <article className="draft-card">
-      <div className="draft-header">
-        <div>
-          <h3>{m.subject}</h3>
-          <span>
-            Aan {m.name} · {m.company}
-          </span>
-        </div>
-        <span className={`approval ${draft.approved ? "approved" : ""}`}>
-          {draft.approved ? "Goedgekeurd" : "Concept"}
-        </span>
-      </div>
-      <label className="sr-only" htmlFor={`draft-${m.id}`}>
-        Antwoord aan {m.name}
-      </label>
-      <textarea
-        id={`draft-${m.id}`}
-        value={draft.text}
-        onChange={(e) =>
-          onChange({ ...draft, text: e.target.value, approved: false })
-        }
-      />
-      <div className="draft-actions">
-        <button className="text-button" onClick={onMail}>
-          <MailIcon size={14} />
-          Bronmail
-        </button>
-        <button
-          className={draft.approved ? "secondary" : "primary"}
-          disabled={!draft.text.trim() || draft.approved}
-          onClick={() => onChange({ ...draft, approved: true })}
-        >
-          <Check size={15} />
-          {draft.approved ? "Goedgekeurd" : "Concept goedkeuren"}
-        </button>
-      </div>
-    </article>
   );
 }

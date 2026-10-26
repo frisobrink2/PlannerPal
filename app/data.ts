@@ -16,7 +16,8 @@ export type Mail = {
 };
 export type Task = {
   id: number;
-  mailId: number;
+  mailId: number | null;
+  date: string;
   title: string;
   duration: number;
   priority: Priority;
@@ -25,7 +26,21 @@ export type Task = {
   start?: number;
 };
 export type Draft = { mailId: number; text: string; approved: boolean };
-export type State = { tasks: Task[]; drafts: Draft[]; read: number[] };
+export type Block = {
+  id: number;
+  date: string;
+  start: number;
+  duration: number;
+  title: string;
+  type: "Afspraak" | "Pauze";
+};
+export type State = {
+  tasks: Task[];
+  drafts: Draft[];
+  read: number[];
+  blocks: Block[];
+};
+export const demoDay = "2026-10-26";
 const rows: [
   string,
   string,
@@ -204,6 +219,7 @@ export const initialState = (): State => ({
     return {
       id,
       mailId: id,
+      date: demoDay,
       title: m.task,
       duration: m.duration,
       priority: m.priority,
@@ -216,6 +232,12 @@ export const initialState = (): State => ({
     .slice(0, 4)
     .map((m) => ({ mailId: m.id, text: m.reply, approved: false })),
   read: [],
+  blocks: fixed.map((block, index) => ({
+    ...block,
+    type: block.type as Block["type"],
+    id: index + 1,
+    date: demoDay,
+  })),
 });
 export const fixed = [
   {
